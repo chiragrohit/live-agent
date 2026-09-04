@@ -262,6 +262,8 @@ async function send(){
       revealTimer=setTimeout(step, totalMs/Math.max(1,words.length));
     });
     // elevenlabs only: timestamp-driven playback, estimated silent fallback
+    // voice-off skips the fetch entirely (no wasted credits) and mimes the line
+    if(!(ttsToggle?.checked ?? true)){ await fakeSpeak(Math.min(5000, Math.max(900, item.text.length*28))); return; }
     const elHandle=item.elFlow ?? startElFlow(item.text, voiceSettingsFor(item, C), VOICE[item.speaker]);
     try{ await playElFlow(elHandle, item, ui, C); return; }
     catch(e){ console.warn('el flow failed, silent fallback', e.message); }
@@ -278,8 +280,8 @@ async function send(){
     while(queue.length>0){
       const item=queue.shift();
       if(!started){ started=true; statusEl.classList.remove('thinking'); for(const n of order) cast[n].setEmotion('neutral'); }
-      // one-ahead prefetch: start next sentence el-flow while current speaks
-      if(queue.length>0){ const nx=queue[0]; if(!nx.elFlow) nx.elFlow=startElFlow(nx.text, voiceSettingsFor(nx, cast[nx.speaker]||max), VOICE[nx.speaker]); }
+      // one-ahead prefetch: start next sentence el-flow while current speaks (skipped when muted)
+      if(queue.length>0 && (ttsToggle?.checked ?? true)){ const nx=queue[0]; if(!nx.elFlow) nx.elFlow=startElFlow(nx.text, voiceSettingsFor(nx, cast[nx.speaker]||max), VOICE[nx.speaker]); }
       const C=cast[item.speaker]||max;
       if(!C.talking) C.startTalking();
       await speak(item);
@@ -309,11 +311,14 @@ async function send(){
     const res = await fetch('/chat/stream', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ message: msg, session_id: sessionId, model: modelSel.value, banter: isBanter })});
     if(!res.ok || !res.body) throw new Error("no stream");
     const reader=res.body.getReader(); const decoder=new TextDecoder();
+    let lastData=Date.now();
+    const watchdog=setInterval(()=>{ if(Date.now()-lastData>45000){ try{ reader.cancel(); }catch{} } }, 5000); // stalled provider can't hang the chat
     let buf="";
     while(true){
       const {value, done} = await reader.read();
       if(done) break;
       buf+=decoder.decode(value,{stream:true});
+      lastData=Date.now();
       const parts=buf.split("\n\n"); buf=parts.pop();
       for(const part of parts){
         if(!part.startsWith("data: ")) continue;
@@ -387,6 +392,7 @@ async function send(){
     for(const n of order) cast[n].stopTalking();
     statusEl.classList.remove('thinking');
   }finally{
+    try{ clearInterval(watchdog); }catch{} // TDZ-safe: throws only if fetch failed first
     busy=false; sendBtn.disabled=false; input.focus();
     // final safety
     setTimeout(()=>{ if(!processing && order.every(n=>!cast[n].talking)) { statusEl.classList.remove('thinking'); } }, 1000);

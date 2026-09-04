@@ -13,6 +13,8 @@ image = (
         "httpx>=0.27",
     )
     .add_local_file("backend.py", "/root/backend.py")
+    .add_local_file("cast.py", "/root/cast.py")
+    .add_local_file("tts.py", "/root/tts.py")
     .add_local_dir("frontend", "/root/frontend")
 )
 

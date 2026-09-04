@@ -12,6 +12,7 @@
 //   });
 export class Character {
   constructor(root, opts = {}) {
+    if (!Character._ow) { gsap.defaults({ overwrite: "auto" }); Character._ow = true; } // rapid tags never pile conflicting tweens
     this.root = root;
     const q = (s) => root.querySelector(s);
     // parts (queried under root so multiple characters could coexist)
