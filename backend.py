@@ -1,8 +1,6 @@
 import os
 import json
 import re
-import asyncio
-import base64
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -11,7 +9,6 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 import httpx
-import websockets
 from agno.agent import Agent
 from agno.models.openai import OpenAIResponses
 
@@ -108,7 +105,7 @@ def _flush_rest(rest: str):
 @app.get("/health")
 async def health():
     return {"status": "ok", "model": MODEL_ID, "base_url": BASE_URL,
-            "llm_configured": bool(API_KEY), "tts_configured": bool(os.getenv("SARVAM_API_KEY", ""))}
+            "llm_configured": bool(API_KEY), "tts_configured": bool(os.getenv("ELEVENLABS_API_KEY", ""))}
 
 @app.post("/chat/stream")
 async def chat_stream(req: ChatRequest):
@@ -167,150 +164,6 @@ async def chat_stream(req: ChatRequest):
 
 class TTSRequest(BaseModel):
     text: str
-    speaker: str | None = None
-    language_code: str | None = None
-
-@app.post("/tts")
-async def tts(req: TTSRequest):
-    """Proxy to Sarvam Bulbul v3 REST — returns base64 wav. Used as fallback."""
-    text = req.text.strip()
-    if not text:
-        return JSONResponse({"error": "text is empty"}, status_code=422)
-    key = os.getenv("SARVAM_API_KEY", "")
-    if not key:
-        return JSONResponse({"error": "SARVAM_API_KEY not set"}, status_code=500)
-    speaker = (req.speaker or os.getenv("SARVAM_SPEAKER", "sunny")).lower()
-    lang = req.language_code or os.getenv("SARVAM_LANGUAGE", "en-IN")
-    model_id = os.getenv("SARVAM_MODEL", "bulbul:v3")
-    try:
-        async with httpx.AsyncClient(timeout=30) as client:
-            r = await client.post(
-                "https://api.sarvam.ai/text-to-speech",
-                headers={"api-subscription-key": key, "Content-Type": "application/json"},
-                json={"text": text[:2000], "model": model_id, "speaker": speaker, "language_code": lang, "pace": 1.05},
-            )
-    except Exception as e:
-        return JSONResponse({"error": f"sarvam unreachable: {str(e)[:200]}"}, status_code=502)
-    if r.status_code != 200:
-        return JSONResponse({"error": f"sarvam {r.status_code}: {r.text[:500]}"}, status_code=502)
-    data = r.json()
-    audios = data.get("audios", [])
-    if not audios:
-        return JSONResponse({"error": "no audio returned", "raw": data}, status_code=502)
-    b64 = "".join(audios)
-    return {"audio_b64": b64, "speaker": speaker, "language_code": lang, "model": model_id, "request_id": data.get("request_id")}
-
-@app.post("/tts/stream")
-async def tts_stream(req: TTSRequest):
-    """Proxy to Sarvam HTTP streaming — returns raw audio bytes (mp3/wav) with lower TTFB. Use this per-sentence."""
-    text = req.text.strip()
-    if not text:
-        return JSONResponse({"error": "text is empty"}, status_code=422)
-    key = os.getenv("SARVAM_API_KEY", "")
-    if not key:
-        return JSONResponse({"error": "SARVAM_API_KEY not set"}, status_code=500)
-    speaker = (req.speaker or os.getenv("SARVAM_SPEAKER", "sunny")).lower()
-    lang = req.language_code or os.getenv("SARVAM_LANGUAGE", "en-IN")
-    model_id = os.getenv("SARVAM_MODEL", "bulbul:v3")
-    # prefer mp3 for streaming (smaller, faster), wav for quality — use mp3
-    payload = {"text": text[:2000], "model": model_id, "speaker": speaker, "language_code": lang, "pace": 1.05, "output_audio_codec": "mp3"}
-    # Open upstream BEFORE committing our response status so errors stay JSON, not fake audio bytes.
-    client = httpx.AsyncClient(timeout=40)
-    try:
-        up = await client.send(client.build_request(
-            "POST", "https://api.sarvam.ai/text-to-speech/stream",
-            headers={"api-subscription-key": key, "Content-Type": "application/json"}, json=payload), stream=True)
-    except Exception as e:
-        await client.aclose()
-        return JSONResponse({"error": f"sarvam unreachable: {str(e)[:200]}"}, status_code=502)
-    if up.status_code != 200:
-        body = (await up.aread())[:500]
-        await up.aclose(); await client.aclose()
-        return JSONResponse({"error": f"sarvam {up.status_code}: {body.decode('utf-8', 'replace')}"}, status_code=502)
-    async def gen():
-        try:
-            async for chunk in up.aiter_bytes(chunk_size=8192):
-                if chunk:
-                    yield chunk
-        finally:
-            await up.aclose(); await client.aclose()
-    # detect content type from codec
-    return StreamingResponse(gen(), media_type="audio/mpeg", headers={"Cache-Control": "no-cache", "X-Speaker": speaker})
-
-@app.post("/tts/flow")
-async def tts_flow(req: TTSRequest):
-    """Realtime relay: Sarvam TTS WebSocket -> chunked mp3 HTTP stream. First byte in ~250ms."""
-    text = req.text.strip()
-    if not text:
-        return JSONResponse({"error": "text is empty"}, status_code=422)
-    key = os.getenv("SARVAM_API_KEY", "")
-    if not key:
-        return JSONResponse({"error": "SARVAM_API_KEY not set"}, status_code=500)
-    speaker = (req.speaker or os.getenv("SARVAM_SPEAKER", "sunny")).lower()
-    lang = req.language_code or os.getenv("SARVAM_LANGUAGE", "en-IN")
-    model_id = os.getenv("SARVAM_MODEL", "bulbul:v3")
-    if model_id not in ("bulbul:v2", "bulbul:v3"):
-        model_id = "bulbul:v3"
-
-    async def read_msg(ws):
-        async for raw in ws:
-            try:
-                m = json.loads(raw)
-            except ValueError:
-                continue
-            t = m.get("type")
-            if t == "audio":
-                return ("audio", base64.b64decode(m["data"]["audio"]))
-            if t == "error":
-                raise RuntimeError(m.get("data", {}).get("message", "sarvam ws error"))
-            if t == "event" and m.get("data", {}).get("event_type") == "final":
-                return ("final", None)
-        return ("final", None)
-
-    try:
-        ws = await websockets.connect(
-            f"wss://api.sarvam.ai/text-to-speech/ws?model={model_id}&send_completion_event=true",
-            additional_headers={"Api-Subscription-Key": key},
-            open_timeout=10, max_size=8 * 1024 * 1024,
-        )
-        await ws.send(json.dumps({"type": "config", "data": {
-            "model": model_id, "language_code": lang, "speaker": speaker,
-            "pace": 1.05, "output_audio_codec": "mp3", "min_buffer_size": 30,
-        }}))
-        await ws.send(json.dumps({"type": "text", "data": {"text": text[:2500]}}))
-        await ws.send(json.dumps({"type": "flush"}))
-    except Exception as e:
-        return JSONResponse({"error": f"sarvam ws unreachable: {str(e)[:200]}"}, status_code=502)
-
-    # Gate on the first audio chunk so errors stay JSON instead of fake mp3 bytes.
-    try:
-        kind, first = await asyncio.wait_for(read_msg(ws), timeout=25)
-    except Exception as e:
-        try: await ws.close()
-        except Exception: pass
-        return JSONResponse({"error": f"sarvam ws failed: {str(e)[:200]}"}, status_code=502)
-    if kind != "audio" or not first:
-        try: await ws.close()
-        except Exception: pass
-        return JSONResponse({"error": "no audio returned"}, status_code=502)
-
-    async def gen():
-        try:
-            yield first
-            while True:
-                try:
-                    kind, chunk = await read_msg(ws)
-                except Exception:
-                    break
-                if kind != "audio" or not chunk:
-                    break
-                yield chunk
-        finally:
-            try: await ws.close()
-            except Exception: pass
-
-    return StreamingResponse(gen(), media_type="audio/mpeg",
-                             headers={"Cache-Control": "no-cache", "X-Speaker": speaker, "X-Flow": "sarvam-ws"})
 
 @app.post("/tts/el-flow")
 async def tts_el_flow(req: TTSRequest):
@@ -390,11 +243,15 @@ async def tts_el_flow(req: TTSRequest):
 @app.get("/tts/voices")
 async def tts_voices():
     return {
-        "recommended_cartoon": ["sunny", "rehan", "ritu", "neha", "priya"],
-        "sunny": "Cheerful & Upbeat — best cartoon male",
-        "rehan": "Youthful & Energetic — young boy",
-        "ritu": "Expressive & Lively — best cartoon female",
-        "note": "speaker names must be lowercase"
+        "provider": "elevenlabs",
+        "default": os.getenv("ELEVENLABS_VOICE", "TX3LPaxmHKxFdv7VOQHJ"),
+        "model": os.getenv("ELEVENLABS_MODEL", "eleven_flash_v2_5"),
+        "candidates": {
+            "Liam": "TX3LPaxmHKxFdv7VOQHJ",
+            "Harry": "SOYHLrjzK2X1ezoPC6cr",
+            "Callum": "N2lVS1w4EtoT3dr4eOWO",
+            "Jessica": "cgSgspJ2msm6clMCkdW9",
+        },
     }
 
 @app.post("/chat")

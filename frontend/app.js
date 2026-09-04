@@ -1,5 +1,5 @@
 const $ = s => document.querySelector(s);
-const log = $('#log'), input = $('#input'), sendBtn = $('#send'), statusEl = $('#status'), ttsToggle=$('#ttsToggle'), voiceSel=$('#voiceSel');
+const log = $('#log'), input = $('#input'), sendBtn = $('#send'), statusEl = $('#status'), ttsToggle=$('#ttsToggle');
 const char = $('#char'), head = $('#head'), mouth = $('#mouth'), mouthInner = $('#mouthInner');
 const eyeL = $('#eyeL'), eyeR = $('#eyeR'), lidL = $('#lidL'), lidR = $('#lidR');
 const pupilL = $('#pupilL'), pupilR = $('#pupilR');
@@ -139,129 +139,6 @@ function addBubble(text, who){
 
 let sessionId = localStorage.getItem('sessionId') || (Math.random().toString(36).slice(2) + Date.now().toString(36));
 localStorage.setItem('sessionId', sessionId);
-
-// fetch-only: streaming TTS first, REST fallback. Never throws — null means fake-timed fallback.
-// --- realtime flow: Sarvam WS relayed as chunked mp3, played progressively via MSE ---
-// ponytail: self-tuning word clock — estimate corrected by measured durations (EMA)
-let flowRate = 1;
-const estMs = (text)=> Math.min(5000, Math.max(900, text.length*28));
-
-function startFlow(text, speaker){
-  // handle accumulates chunks even before playback — doubles as prefetch
-  const h={chunks:[], idx:0, done:false, error:null};
-  (async()=>{
-    try{
-      const r=await fetch('/tts/flow',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text, speaker})});
-      if(!r.ok || !r.body) throw new Error('flow '+r.status);
-      const reader=r.body.getReader();
-      let got=false;
-      while(true){
-        const {value,done}=await reader.read();
-        if(done) break;
-        if(value && value.length){ h.chunks.push(value); got=true; }
-      }
-      if(!got) throw new Error('empty flow audio');
-      h.done=true;
-    }catch(e){ h.error=e; }
-  })();
-  return h;
-}
-const flowNext=(h)=>new Promise((res,rej)=>{
-  const poll=()=>{
-    if(h.idx<h.chunks.length) return res(h.chunks[h.idx++]);
-    if(h.error) return rej(h.error);
-    if(h.done) return res(null);
-    setTimeout(poll, 25);
-  };
-  poll();
-});
-
-async function playFlow(handle, item, ui){
-  if(!window.MediaSource || !MediaSource.isTypeSupported('audio/mpeg')) throw new Error('MSE unsupported');
-  const words=item.text.split(/\s+/).filter(Boolean);
-  const fireTags=()=>{ if(item.emotion) setEmotion(item.emotion); if(item.gesture) setTimeout(()=>doGesture(item.gesture), 180); };
-  const ms=new MediaSource();
-  const audio=new Audio();
-  audio.src=URL.createObjectURL(ms);
-  audioEl=audio;
-  if(rafId) cancelAnimationFrame(rafId);
-  return await new Promise((resolve,reject)=>{
-    let ended=false, revealed=false, started=false, finished=false, sb=null;
-    const finish=(ok)=>{
-      if(finished) return; finished=true;
-      ui.clearReveal();
-      try{ audio.pause(); }catch{}
-      try{ URL.revokeObjectURL(audio.src); }catch{}
-      if(audioEl===audio) audioEl=null;
-      if(rafId) cancelAnimationFrame(rafId);
-      if(ok && started && isFinite(audio.duration) && audio.duration>0){
-        const r=(audio.duration*1000)/estMs(item.text);
-        flowRate=Math.min(2, Math.max(0.5, 0.7*flowRate+0.3*r));
-      }
-      if(!revealed){ revealed=true; ui.commitItem(item.text); }
-      if(talking) flapTick();
-      ok? resolve() : reject(new Error('flow playback failed'));
-    };
-    audio.onended=()=>{ ended=true; finish(true); };
-    audio.onerror=()=>{ finish(started); };
-    const appendChunk=(c)=>new Promise((res,rej)=>{
-      const done=()=>{ sb.removeEventListener('updateend', done); res(); };
-      try{
-        if(sb.updating){ sb.addEventListener('updateend', function w(){ sb.removeEventListener('updateend', w); try{ sb.appendBuffer(c); sb.addEventListener('updateend', done); }catch(e){ rej(e); } }); }
-        else { sb.appendBuffer(c); sb.addEventListener('updateend', done); }
-      }catch(e){ rej(e); }
-    });
-    const pump=async()=>{
-      try{
-        while(true){
-          if(finished) return;
-          const c=await flowNext(handle);
-          if(c===null) break;
-          if(finished) return;
-          await appendChunk(c);
-          if(!started){
-            started=true;
-            try{ await audio.play(); }
-            catch(e){ finish(false); return; }
-            if(!talking) startTalking();
-            statusEl.textContent='speaking...'; statusEl.classList.add('talking');
-            fireTags();
-            startAudioLipSync(audio);
-            const per=(estMs(item.text)*flowRate)/Math.max(1,words.length);
-            let i=0; ui.renderShown(words[0]||"");
-            const step=()=>{ if(ended||finished) return; i++; if(i>=words.length){ revealed=true; ui.commitItem(item.text); return; } ui.renderShown(words.slice(0,i+1).join(" ")); ui.armReveal(setTimeout(step, per)); };
-            ui.armReveal(setTimeout(step, per));
-          }
-        }
-        try{ if(ms.readyState==="open") ms.endOfStream(); }catch{}
-        // safety: resolve even if 'ended' misfires on MSE duration quirks
-        setTimeout(()=>{ if(!finished){ ended=true; finish(true); } }, Math.max(6000, ((isFinite(audio.duration)?audio.duration:0)*1000)+3000));
-      }catch(e){
-        if(!started){ reject(e); return; }
-        // mid-play failure: play out what's buffered, then resolve via onended
-        try{ if(ms.readyState==="open") ms.endOfStream(); }catch{}
-      }
-    };
-    ms.addEventListener('sourceopen', ()=>{ try{ sb=ms.addSourceBuffer('audio/mpeg'); }catch(e){ reject(e); return; } pump(); }, {once:true});
-    setTimeout(()=>{ if(!sb && !finished) reject(new Error('MSE open timeout')); }, 8000);
-  });
-}
-async function fetchAudio(text, speaker){
-  if(!ttsToggle?.checked) return null;
-  try{
-    const r = await fetch('/tts/stream', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({text, speaker})});
-    if(!r.ok) throw new Error(`stream ${r.status}`);
-    const blob = await r.blob();
-    if(blob.size<200) throw new Error('empty stream audio');
-    return blob;
-  }catch(e){ console.warn('stream TTS failed, fallback REST', e.message); }
-  try{
-    const r = await fetch('/tts', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({text, speaker})});
-    const j = await r.json();
-    if(j.error || !j.audio_b64) throw new Error(j.error || 'no audio');
-    return await fetch(`data:audio/wav;base64,${j.audio_b64}`).then(r=>r.blob());
-  }catch(e2){ console.warn('REST TTS fallback failed', e2.message); return null; }
-}
 
 // --- elevenlabs flow: NDJSON {audio b64, char timings}, reveal + tags driven by REAL timestamps ---
 function startElFlow(text){
@@ -413,8 +290,6 @@ async function send(){
 
   let queue=[], processing=false, streamDone=false, sentenceBuf="", pendingEmotion=null, pendingGesture=null, pendingSlots=[], displayed="", started=false;
   const SENT_RE = /^[^.!?]*[.!?]+/;
-  const sarvamSpeaker = ()=>{ const v=voiceSel?.value || 'sunny'; return v==="__el__" ? "sunny" : v; };
-  const spk = sarvamSpeaker(); // lock voice for the whole reply so prefetched audio matches
   let revealTimer=null;
   const clearReveal=()=>{ if(revealTimer){ clearTimeout(revealTimer); revealTimer=null; } };
   const armReveal=(id)=>{ revealTimer=id; };
@@ -430,36 +305,11 @@ async function send(){
       const step=()=>{ i++; if(i>=words.length){ clearReveal(); commitItem(item.text); res(); return; } renderShown(words.slice(0,i+1).join(" ")); revealTimer=setTimeout(step, totalMs/Math.max(1,words.length)); };
       revealTimer=setTimeout(step, totalMs/Math.max(1,words.length));
     });
-    // realtime first: el timestamps (ground truth); sarvam flow, blob, fake fallbacks below
+    // elevenlabs only: timestamp-driven playback, estimated silent fallback
     const elHandle=item.elFlow ?? startElFlow(item.text);
     try{ await playElFlow(elHandle, item, ui); return; }
-    catch(e){ console.warn('el flow failed, sarvam flow fallback', e.message); }
-    const handle=item.flow ?? startFlow(item.text, spk);
-    try{ await playFlow(handle, item, ui); return; }
-    catch(e){ console.warn('flow playback failed, blob fallback', e.message); }
-    const blob=await fetchAudio(item.text, spk);
-    if(!blob){ await fakeSpeak(Math.min(5000, Math.max(900, item.text.length*28))); return; }
-    const url=URL.createObjectURL(blob);
-    const audio=new Audio(url);
-    audioEl=audio;
-    if(rafId) cancelAnimationFrame(rafId);
-    await new Promise((resolve)=>{
-      let revealed=false, ended=false;
-      const finish=()=>{ clearReveal(); URL.revokeObjectURL(url); if(audioEl===audio) audioEl=null; if(rafId) cancelAnimationFrame(rafId); if(!revealed){ revealed=true; commitItem(item.text); } if(talking) flapTick(); resolve(); };
-      audio.onended=()=>{ ended=true; finish(); };
-      audio.onerror=()=>{ finish(); };
-      audio.play().then(()=>{
-        if(!talking) startTalking();
-        statusEl.textContent='speaking...'; statusEl.classList.add('talking');
-        fireTags();
-        startAudioLipSync(audio);
-        const dur=(isFinite(audio.duration) && audio.duration>0)? audio.duration*1000 : Math.min(5000, Math.max(900, item.text.length*28));
-        const per=dur/Math.max(1,words.length);
-        let i=0; renderShown(words[0]||"");
-        const step=()=>{ if(ended) return; i++; if(i>=words.length){ revealed=true; commitItem(item.text); return; } renderShown(words.slice(0,i+1).join(" ")); revealTimer=setTimeout(step, per); };
-        revealTimer=setTimeout(step, per);
-      }).catch(()=>{ if(audioEl===audio) audioEl=null; fakeSpeak(Math.min(5000, Math.max(900, item.text.length*28))).then(resolve); });
-    });
+    catch(e){ console.warn('el flow failed, silent fallback', e.message); }
+    await fakeSpeak(Math.min(5000, Math.max(900, item.text.length*28)));
   };
   const enqueue=(text)=>{
     if(!text.trim()) return;

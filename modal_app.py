@@ -11,7 +11,6 @@ image = (
         "python-dotenv>=1.0",
         "pydantic>=2.0",
         "httpx>=0.27",
-        "websockets>=15",
     )
     .add_local_file("backend.py", "/root/backend.py")
     .add_local_dir("frontend", "/root/frontend")
