@@ -140,42 +140,22 @@ function addBubble(text, who){
 let sessionId = localStorage.getItem('sessionId') || (Math.random().toString(36).slice(2) + Date.now().toString(36));
 localStorage.setItem('sessionId', sessionId);
 
-async function playSentence(text, speaker, emotion=null, gesture=null){
-  // ponytail: streaming first, fallback REST — emotion/gesture fired WITH audio, not before
-  // streaming first, fallback to REST b64 — audio drives mouth via analyser
-  if(!ttsToggle?.checked){
-    if(emotion) setEmotion(emotion);
-    if(gesture) setTimeout(()=>doGesture(gesture), 120);
-    const est = Math.min(5000, Math.max(900, text.length*28));
-    if(!talking) startTalking();
-    await new Promise(r=> setTimeout(r, est));
-    return false;
-  }
-  const tryStream = async()=>{
+// fetch-only: streaming TTS first, REST fallback. Never throws — null means fake-timed fallback.
+async function fetchAudio(text, speaker){
+  if(!ttsToggle?.checked) return null;
+  try{
     const r = await fetch('/tts/stream', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({text, speaker})});
-    if(!r.ok){ const t=await r.text().catch(()=>""); throw new Error(`stream ${r.status} ${t.slice(0,120)}`); }
+    if(!r.ok) throw new Error(`stream ${r.status}`);
     const blob = await r.blob();
     if(blob.size<200) throw new Error('empty stream audio');
     return blob;
-  };
-  const tryRest = async()=>{
+  }catch(e){ console.warn('stream TTS failed, fallback REST', e.message); }
+  try{
     const r = await fetch('/tts', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({text, speaker})});
-    const j=await r.json();
-    if(j.error) throw new Error(j.error);
-    if(!j.audio_b64) throw new Error('no audio');
+    const j = await r.json();
+    if(j.error || !j.audio_b64) throw new Error(j.error || 'no audio');
     return await fetch(`data:audio/wav;base64,${j.audio_b64}`).then(r=>r.blob());
-  };
-  let blob=null;
-  try{ blob=await tryStream(); }catch(e){ console.warn('stream failed, fallback REST',e.message); try{ blob=await tryRest(); }catch(e2){ console.warn('REST fallback failed',e2.message); const est=Math.min(4000,text.length*30); if(emotion) setEmotion(emotion); if(gesture) setTimeout(()=>doGesture(gesture),120); if(!talking) startTalking(); await new Promise(r=>setTimeout(r,est)); return false; } }
-  const url=URL.createObjectURL(blob);
-  const audio=new Audio(url);
-  audioEl=audio;
-  if(rafId) cancelAnimationFrame(rafId);
-  return await new Promise((resolve)=>{
-    audio.onended=()=>{ URL.revokeObjectURL(url); audioEl=null; if(rafId) cancelAnimationFrame(rafId); if(talking) flapTick(); resolve(true); };
-    audio.onerror=()=>{ URL.revokeObjectURL(url); audioEl=null; if(talking) flapTick(); resolve(false); };
-    audio.play().then(()=>{ if(!talking) startTalking(); statusEl.textContent='speaking...'; statusEl.classList.add('talking'); if(emotion) setEmotion(emotion); if(gesture) setTimeout(()=>doGesture(gesture), 180); startAudioLipSync(audio); }).catch(()=> resolve(false));
-  });
+  }catch(e2){ console.warn('REST TTS fallback failed', e2.message); return null; }
 }
 
 let busy = false;
@@ -195,6 +175,44 @@ async function send(){
   let queue=[], processing=false, streamDone=false, sentenceBuf="", pendingEmotion=null, pendingGesture=null, displayed="", started=false;
   const SENT_RE = /^[^.!?]*[.!?]+/;
   const speaker = ()=> voiceSel?.value || 'sunny';
+  const spk = speaker(); // lock voice for the whole reply so prefetched audio matches
+  let revealTimer=null;
+  const clearReveal=()=>{ if(revealTimer){ clearTimeout(revealTimer); revealTimer=null; } };
+  const renderShown=(shown)=>{ botBubble.textContent=(displayed? displayed+" " : "")+shown; log.scrollTop=log.scrollHeight; };
+  const commitItem=(text)=>{ displayed=displayed? displayed+" "+text : text; botBubble.textContent=displayed; log.scrollTop=log.scrollHeight; };
+  const speak=async(item)=>{
+    const words=item.text.split(/\s+/).filter(Boolean);
+    const fireTags=()=>{ if(item.emotion) setEmotion(item.emotion); if(item.gesture) setTimeout(()=>doGesture(item.gesture), 180); };
+    const fakeSpeak=(totalMs)=>new Promise((res)=>{
+      fireTags(); if(!talking) startTalking();
+      let i=0; renderShown(words[0]||"");
+      const step=()=>{ i++; if(i>=words.length){ clearReveal(); commitItem(item.text); res(); return; } renderShown(words.slice(0,i+1).join(" ")); revealTimer=setTimeout(step, totalMs/Math.max(1,words.length)); };
+      revealTimer=setTimeout(step, totalMs/Math.max(1,words.length));
+    });
+    const blob=await (item.audioPromise ?? fetchAudio(item.text, spk));
+    if(!blob){ await fakeSpeak(Math.min(5000, Math.max(900, item.text.length*28))); return; }
+    const url=URL.createObjectURL(blob);
+    const audio=new Audio(url);
+    audioEl=audio;
+    if(rafId) cancelAnimationFrame(rafId);
+    await new Promise((resolve)=>{
+      let revealed=false, ended=false;
+      const finish=()=>{ clearReveal(); URL.revokeObjectURL(url); if(audioEl===audio) audioEl=null; if(rafId) cancelAnimationFrame(rafId); if(!revealed){ revealed=true; commitItem(item.text); } if(talking) flapTick(); resolve(); };
+      audio.onended=()=>{ ended=true; finish(); };
+      audio.onerror=()=>{ finish(); };
+      audio.play().then(()=>{
+        if(!talking) startTalking();
+        statusEl.textContent='speaking...'; statusEl.classList.add('talking');
+        fireTags();
+        startAudioLipSync(audio);
+        const dur=(isFinite(audio.duration) && audio.duration>0)? audio.duration*1000 : Math.min(5000, Math.max(900, item.text.length*28));
+        const per=dur/Math.max(1,words.length);
+        let i=0; renderShown(words[0]||"");
+        const step=()=>{ if(ended) return; i++; if(i>=words.length){ revealed=true; commitItem(item.text); return; } renderShown(words.slice(0,i+1).join(" ")); revealTimer=setTimeout(step, per); };
+        revealTimer=setTimeout(step, per);
+      }).catch(()=>{ if(audioEl===audio) audioEl=null; fakeSpeak(Math.min(5000, Math.max(900, item.text.length*28))).then(resolve); });
+    });
+  };
   const enqueue=(text)=>{
     if(!text.trim()) return;
     queue.push({text: text.trim(), emotion: pendingEmotion, gesture: pendingGesture});
@@ -206,12 +224,10 @@ async function send(){
     while(queue.length>0){
       const item=queue.shift();
       if(!started){ started=true; statusEl.classList.remove('thinking'); botBubble.textContent=""; displayed=""; setEmotion('neutral'); }
-      if(displayed) displayed+=" ";
-      displayed+=item.text;
-      botBubble.textContent=displayed;
-      log.scrollTop=log.scrollHeight;
+      // one-ahead prefetch: fetch next sentence audio while current speaks
+      if(queue.length>0){ const nx=queue[0]; if(!nx.audioPromise) nx.audioPromise=fetchAudio(nx.text, spk); }
       if(!talking) startTalking();
-      await playSentence(item.text, speaker(), item.emotion, item.gesture);
+      await speak(item);
       if(queue.length>0) await new Promise(r=> setTimeout(r, 120));
     }
     processing=false;
@@ -226,6 +242,7 @@ async function send(){
   let finished=false;
   const finalize=()=>{
     if(finished) return; finished=true;
+    clearReveal();
     botBubble.classList.remove('stream');
     stopTalking();
     statusEl.textContent='idle \u2022 blinking';
@@ -270,6 +287,14 @@ async function send(){
     streamDone=true;
     if(sentenceBuf.trim()) enqueue(sentenceBuf.trim());
     sentenceBuf="";
+    // trailing tags (arrived after the last text) previously died silently —
+    // merge into the final queued sentence, or fire live if audio is already playing
+    if(pendingEmotion || pendingGesture){
+      const tail=queue[queue.length-1];
+      if(tail){ if(pendingEmotion) tail.emotion=pendingEmotion; if(pendingGesture) tail.gesture=pendingGesture; }
+      else { if(pendingEmotion) setEmotion(pendingEmotion); if(pendingGesture){ const g=pendingGesture; setTimeout(()=>doGesture(g), 150); } }
+      pendingEmotion=pendingGesture=null;
+    }
     // if nothing ever enqueued (e.g., very short without punctuation), ensure drain
     if(queue.length===0 && !displayed){
       botBubble.textContent="(no reply — check backend logs)";
