@@ -34,6 +34,9 @@ function addBubble(text, who){
 
 let sessionId = localStorage.getItem('sessionId') || (Math.random().toString(36).slice(2) + Date.now().toString(36));
 localStorage.setItem('sessionId', sessionId);
+const modelSel=$('#modelSel');
+modelSel.value=localStorage.getItem('brain')||'zen';
+modelSel.addEventListener('change',()=>localStorage.setItem('brain',modelSel.value));
 
 // voice mood lives on the character (per-variant delivery); explicit voice: tags override
 function voiceSettingsFor(item){
@@ -259,7 +262,7 @@ async function send(){
   };
 
   try{
-    const res = await fetch('/chat/stream', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ message: msg, session_id: sessionId })});
+    const res = await fetch('/chat/stream', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ message: msg, session_id: sessionId, model: modelSel.value })});
     if(!res.ok || !res.body) throw new Error("no stream");
     const reader=res.body.getReader(); const decoder=new TextDecoder();
     let buf="";

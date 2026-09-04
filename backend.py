@@ -10,7 +10,7 @@ from pydantic import BaseModel
 
 import httpx
 from agno.agent import Agent
-from agno.models.openai import OpenAIResponses
+from agno.models.openai import OpenAIResponses, OpenAIChat
 
 load_dotenv()
 
@@ -42,6 +42,22 @@ agent = Agent(
     markdown=False,
 )
 
+# Groq via OpenAI-compatible chat completions (no new deps). Same Max handbook,
+# reused off the zen agent so the two brains never drift.
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+GROQ_MODEL = os.getenv("GROQ_MODEL", "qwen/qwen3-32b")
+GROQ_BASE_URL = os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1")
+
+def make_agent(provider: str) -> Agent:
+    if provider == "groq":
+        if not GROQ_API_KEY:
+            raise ValueError("groq not configured")
+        gm = OpenAIChat(id=GROQ_MODEL, api_key=GROQ_API_KEY, base_url=GROQ_BASE_URL,
+                        temperature=0.9, max_tokens=2048)
+        return Agent(model=gm, description=agent.description,
+                     instructions=agent.instructions, markdown=False)
+    return agent
+
 app = FastAPI(title="Live Agent - Max")
 
 @app.middleware("http")
@@ -57,6 +73,7 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=False,
 class ChatRequest(BaseModel):
     message: str
     session_id: str = "default"
+    model: str = "zen"  # zen | groq
 
 TAG_RE = re.compile(r"\[([a-z_]+):([a-z0-9_=\.\-,]+(?::[a-z0-9_=\.\-,]+)*)\]")
 
@@ -112,7 +129,9 @@ def _flush_rest(rest: str):
 @app.get("/health")
 async def health():
     return {"status": "ok", "model": MODEL_ID, "base_url": BASE_URL,
-            "llm_configured": bool(API_KEY), "tts_configured": bool(os.getenv("ELEVENLABS_API_KEY", ""))}
+            "llm_configured": bool(API_KEY), "tts_configured": bool(os.getenv("ELEVENLABS_API_KEY", "")),
+            "groq_configured": bool(GROQ_API_KEY),
+            "models": {"zen": MODEL_ID, "groq": GROQ_MODEL}}
 
 @app.post("/chat/stream")
 async def chat_stream(req: ChatRequest):
@@ -122,6 +141,10 @@ async def chat_stream(req: ChatRequest):
     if len(msg) > 4000:
         return JSONResponse({"error": "message too long (max 4000 chars)"}, status_code=422)
     sid = (req.session_id or "default")[:64]
+    try:
+        ag = make_agent(req.model)
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
 
     async def gen():
         collected: list[str] = []
@@ -129,7 +152,7 @@ async def chat_stream(req: ChatRequest):
         try:
             hist = _history_lines(sid)
             prompt = f"Conversation so far:\n{hist}\n\nUser: {msg}" if hist else msg
-            stream = agent.arun(prompt, stream=True)
+            stream = ag.arun(prompt, stream=True)
             rest = ""
             async for chunk in stream:
                 content = getattr(chunk, "content", None)
@@ -275,7 +298,11 @@ async def chat(req: ChatRequest):
     sid = (req.session_id or "default")[:64]
     hist = _history_lines(sid)
     prompt = f"Conversation so far:\n{hist}\n\nUser: {msg}" if hist else msg
-    res = await agent.arun(prompt)
+    try:
+        ag = make_agent(req.model)
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+    res = await ag.arun(prompt)
     text = getattr(res, "content", str(res)) or ""
     if text.strip():
         _remember(sid, msg, text.strip()[:2000])

@@ -99,6 +99,9 @@ h1 span{background:#1a1a1a;color:#fff;padding:3px 9px;border-radius:999px;margin
 
 /* chat — now same width as stage, perfectly aligned */
 .chat{width:100%;background:#fff;border:4px solid #1a1a1a;border-radius:18px;box-shadow:8px 8px 0 #1a1a1a;overflow:hidden;display:flex;flex-direction:column}
+.topbar{display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border-bottom:3px solid #1a1a1a;background:#fff}
+.topbar-title{font-weight:900;letter-spacing:1px;font-size:13px}
+#modelSel{font:inherit;font-size:12px;font-weight:700;border:3px solid #1a1a1a;border-radius:10px;padding:4px 6px;background:#faf6ef;cursor:pointer;max-width:190px}
 .log{height:280px;overflow:auto;padding:14px;display:flex;flex-direction:column;gap:10px;background:#faf6ef}
 @media (max-height: 800px){ .log{ height:220px } }
 .bubble{max-width:84%;padding:10px 14px;border-radius:16px;border:2px solid #1a1a1a;font-size:14px;line-height:1.45;box-shadow:3px 3px 0 #1a1a1a;word-break:break-word}
