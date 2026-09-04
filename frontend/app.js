@@ -141,6 +141,111 @@ let sessionId = localStorage.getItem('sessionId') || (Math.random().toString(36)
 localStorage.setItem('sessionId', sessionId);
 
 // fetch-only: streaming TTS first, REST fallback. Never throws — null means fake-timed fallback.
+// --- realtime flow: Sarvam WS relayed as chunked mp3, played progressively via MSE ---
+// ponytail: self-tuning word clock — estimate corrected by measured durations (EMA)
+let flowRate = 1;
+const estMs = (text)=> Math.min(5000, Math.max(900, text.length*28));
+
+function startFlow(text, speaker){
+  // handle accumulates chunks even before playback — doubles as prefetch
+  const h={chunks:[], idx:0, done:false, error:null};
+  (async()=>{
+    try{
+      const r=await fetch('/tts/flow',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text, speaker})});
+      if(!r.ok || !r.body) throw new Error('flow '+r.status);
+      const reader=r.body.getReader();
+      let got=false;
+      while(true){
+        const {value,done}=await reader.read();
+        if(done) break;
+        if(value && value.length){ h.chunks.push(value); got=true; }
+      }
+      if(!got) throw new Error('empty flow audio');
+      h.done=true;
+    }catch(e){ h.error=e; }
+  })();
+  return h;
+}
+const flowNext=(h)=>new Promise((res,rej)=>{
+  const poll=()=>{
+    if(h.idx<h.chunks.length) return res(h.chunks[h.idx++]);
+    if(h.error) return rej(h.error);
+    if(h.done) return res(null);
+    setTimeout(poll, 25);
+  };
+  poll();
+});
+
+async function playFlow(handle, item, ui){
+  if(!window.MediaSource || !MediaSource.isTypeSupported('audio/mpeg')) throw new Error('MSE unsupported');
+  const words=item.text.split(/\s+/).filter(Boolean);
+  const fireTags=()=>{ if(item.emotion) setEmotion(item.emotion); if(item.gesture) setTimeout(()=>doGesture(item.gesture), 180); };
+  const ms=new MediaSource();
+  const audio=new Audio();
+  audio.src=URL.createObjectURL(ms);
+  audioEl=audio;
+  if(rafId) cancelAnimationFrame(rafId);
+  return await new Promise((resolve,reject)=>{
+    let ended=false, revealed=false, started=false, finished=false, sb=null;
+    const finish=(ok)=>{
+      if(finished) return; finished=true;
+      ui.clearReveal();
+      try{ audio.pause(); }catch{}
+      try{ URL.revokeObjectURL(audio.src); }catch{}
+      if(audioEl===audio) audioEl=null;
+      if(rafId) cancelAnimationFrame(rafId);
+      if(ok && started && isFinite(audio.duration) && audio.duration>0){
+        const r=(audio.duration*1000)/estMs(item.text);
+        flowRate=Math.min(2, Math.max(0.5, 0.7*flowRate+0.3*r));
+      }
+      if(!revealed){ revealed=true; ui.commitItem(item.text); }
+      if(talking) flapTick();
+      ok? resolve() : reject(new Error('flow playback failed'));
+    };
+    audio.onended=()=>{ ended=true; finish(true); };
+    audio.onerror=()=>{ finish(started); };
+    const appendChunk=(c)=>new Promise((res,rej)=>{
+      const done=()=>{ sb.removeEventListener('updateend', done); res(); };
+      try{
+        if(sb.updating){ sb.addEventListener('updateend', function w(){ sb.removeEventListener('updateend', w); try{ sb.appendBuffer(c); sb.addEventListener('updateend', done); }catch(e){ rej(e); } }); }
+        else { sb.appendBuffer(c); sb.addEventListener('updateend', done); }
+      }catch(e){ rej(e); }
+    });
+    const pump=async()=>{
+      try{
+        while(true){
+          if(finished) return;
+          const c=await flowNext(handle);
+          if(c===null) break;
+          if(finished) return;
+          await appendChunk(c);
+          if(!started){
+            started=true;
+            try{ await audio.play(); }
+            catch(e){ finish(false); return; }
+            if(!talking) startTalking();
+            statusEl.textContent='speaking...'; statusEl.classList.add('talking');
+            fireTags();
+            startAudioLipSync(audio);
+            const per=(estMs(item.text)*flowRate)/Math.max(1,words.length);
+            let i=0; ui.renderShown(words[0]||"");
+            const step=()=>{ if(ended||finished) return; i++; if(i>=words.length){ revealed=true; ui.commitItem(item.text); return; } ui.renderShown(words.slice(0,i+1).join(" ")); ui.armReveal(setTimeout(step, per)); };
+            ui.armReveal(setTimeout(step, per));
+          }
+        }
+        try{ if(ms.readyState==="open") ms.endOfStream(); }catch{}
+        // safety: resolve even if 'ended' misfires on MSE duration quirks
+        setTimeout(()=>{ if(!finished){ ended=true; finish(true); } }, Math.max(6000, ((isFinite(audio.duration)?audio.duration:0)*1000)+3000));
+      }catch(e){
+        if(!started){ reject(e); return; }
+        // mid-play failure: play out what's buffered, then resolve via onended
+        try{ if(ms.readyState==="open") ms.endOfStream(); }catch{}
+      }
+    };
+    ms.addEventListener('sourceopen', ()=>{ try{ sb=ms.addSourceBuffer('audio/mpeg'); }catch(e){ reject(e); return; } pump(); }, {once:true});
+    setTimeout(()=>{ if(!sb && !finished) reject(new Error('MSE open timeout')); }, 8000);
+  });
+}
 async function fetchAudio(text, speaker){
   if(!ttsToggle?.checked) return null;
   try{
@@ -178,8 +283,10 @@ async function send(){
   const spk = speaker(); // lock voice for the whole reply so prefetched audio matches
   let revealTimer=null;
   const clearReveal=()=>{ if(revealTimer){ clearTimeout(revealTimer); revealTimer=null; } };
+  const armReveal=(id)=>{ revealTimer=id; };
   const renderShown=(shown)=>{ botBubble.textContent=(displayed? displayed+" " : "")+shown; log.scrollTop=log.scrollHeight; };
   const commitItem=(text)=>{ displayed=displayed? displayed+" "+text : text; botBubble.textContent=displayed; log.scrollTop=log.scrollHeight; };
+  const ui={renderShown, commitItem, clearReveal, armReveal};
   const speak=async(item)=>{
     const words=item.text.split(/\s+/).filter(Boolean);
     const fireTags=()=>{ if(item.emotion) setEmotion(item.emotion); if(item.gesture) setTimeout(()=>doGesture(item.gesture), 180); };
@@ -189,7 +296,11 @@ async function send(){
       const step=()=>{ i++; if(i>=words.length){ clearReveal(); commitItem(item.text); res(); return; } renderShown(words.slice(0,i+1).join(" ")); revealTimer=setTimeout(step, totalMs/Math.max(1,words.length)); };
       revealTimer=setTimeout(step, totalMs/Math.max(1,words.length));
     });
-    const blob=await (item.audioPromise ?? fetchAudio(item.text, spk));
+    // realtime first: progressive WS playback (also serves prefetch); blob + fake fallbacks below
+    const handle=item.flow ?? startFlow(item.text, spk);
+    try{ await playFlow(handle, item, ui); return; }
+    catch(e){ console.warn('flow playback failed, blob fallback', e.message); }
+    const blob=await fetchAudio(item.text, spk);
     if(!blob){ await fakeSpeak(Math.min(5000, Math.max(900, item.text.length*28))); return; }
     const url=URL.createObjectURL(blob);
     const audio=new Audio(url);
@@ -224,8 +335,8 @@ async function send(){
     while(queue.length>0){
       const item=queue.shift();
       if(!started){ started=true; statusEl.classList.remove('thinking'); botBubble.textContent=""; displayed=""; setEmotion('neutral'); }
-      // one-ahead prefetch: fetch next sentence audio while current speaks
-      if(queue.length>0){ const nx=queue[0]; if(!nx.audioPromise) nx.audioPromise=fetchAudio(nx.text, spk); }
+      // one-ahead prefetch: start next sentence flow while current speaks
+      if(queue.length>0){ const nx=queue[0]; if(!nx.flow) nx.flow=startFlow(nx.text, spk); }
       if(!talking) startTalking();
       await speak(item);
       if(queue.length>0) await new Promise(r=> setTimeout(r, 120));

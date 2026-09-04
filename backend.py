@@ -1,6 +1,8 @@
 import os
 import json
 import re
+import asyncio
+import base64
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -9,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 import httpx
+import websockets
 from agno.agent import Agent
 from agno.models.openai import OpenAIResponses
 
@@ -225,6 +228,81 @@ async def tts_stream(req: TTSRequest):
             await up.aclose(); await client.aclose()
     # detect content type from codec
     return StreamingResponse(gen(), media_type="audio/mpeg", headers={"Cache-Control": "no-cache", "X-Speaker": speaker})
+
+@app.post("/tts/flow")
+async def tts_flow(req: TTSRequest):
+    """Realtime relay: Sarvam TTS WebSocket -> chunked mp3 HTTP stream. First byte in ~250ms."""
+    text = req.text.strip()
+    if not text:
+        return JSONResponse({"error": "text is empty"}, status_code=422)
+    key = os.getenv("SARVAM_API_KEY", "")
+    if not key:
+        return JSONResponse({"error": "SARVAM_API_KEY not set"}, status_code=500)
+    speaker = (req.speaker or os.getenv("SARVAM_SPEAKER", "sunny")).lower()
+    lang = req.language_code or os.getenv("SARVAM_LANGUAGE", "en-IN")
+    model_id = os.getenv("SARVAM_MODEL", "bulbul:v3")
+    if model_id not in ("bulbul:v2", "bulbul:v3"):
+        model_id = "bulbul:v3"
+
+    async def read_msg(ws):
+        async for raw in ws:
+            try:
+                m = json.loads(raw)
+            except ValueError:
+                continue
+            t = m.get("type")
+            if t == "audio":
+                return ("audio", base64.b64decode(m["data"]["audio"]))
+            if t == "error":
+                raise RuntimeError(m.get("data", {}).get("message", "sarvam ws error"))
+            if t == "event" and m.get("data", {}).get("event_type") == "final":
+                return ("final", None)
+        return ("final", None)
+
+    try:
+        ws = await websockets.connect(
+            f"wss://api.sarvam.ai/text-to-speech/ws?model={model_id}&send_completion_event=true",
+            additional_headers={"Api-Subscription-Key": key},
+            open_timeout=10, max_size=8 * 1024 * 1024,
+        )
+        await ws.send(json.dumps({"type": "config", "data": {
+            "model": model_id, "language_code": lang, "speaker": speaker,
+            "pace": 1.05, "output_audio_codec": "mp3", "min_buffer_size": 30,
+        }}))
+        await ws.send(json.dumps({"type": "text", "data": {"text": text[:2500]}}))
+        await ws.send(json.dumps({"type": "flush"}))
+    except Exception as e:
+        return JSONResponse({"error": f"sarvam ws unreachable: {str(e)[:200]}"}, status_code=502)
+
+    # Gate on the first audio chunk so errors stay JSON instead of fake mp3 bytes.
+    try:
+        kind, first = await asyncio.wait_for(read_msg(ws), timeout=25)
+    except Exception as e:
+        try: await ws.close()
+        except Exception: pass
+        return JSONResponse({"error": f"sarvam ws failed: {str(e)[:200]}"}, status_code=502)
+    if kind != "audio" or not first:
+        try: await ws.close()
+        except Exception: pass
+        return JSONResponse({"error": "no audio returned"}, status_code=502)
+
+    async def gen():
+        try:
+            yield first
+            while True:
+                try:
+                    kind, chunk = await read_msg(ws)
+                except Exception:
+                    break
+                if kind != "audio" or not chunk:
+                    break
+                yield chunk
+        finally:
+            try: await ws.close()
+            except Exception: pass
+
+    return StreamingResponse(gen(), media_type="audio/mpeg",
+                             headers={"Cache-Control": "no-cache", "X-Speaker": speaker, "X-Flow": "sarvam-ws"})
 
 @app.get("/tts/voices")
 async def tts_voices():
