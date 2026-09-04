@@ -11,6 +11,8 @@ from pydantic import BaseModel
 import httpx
 from agno.agent import Agent
 from agno.models.openai import OpenAIResponses, OpenAIChat
+from agno.team import Team
+from agno.team.mode import TeamMode
 
 load_dotenv()
 
@@ -21,26 +23,71 @@ MODEL_ID = os.getenv("MODEL_ID", "muse-spark-1.3-contributor")
 
 model = OpenAIResponses(id=MODEL_ID, api_key=API_KEY, base_url=BASE_URL, max_output_tokens=4096, temperature=0.9)
 
+# Shared rig grammar: identical for every cast member, or their tags break the rig.
+RIG_GRAMMAR = [
+    "To show emotion, include a tag like [emotion:neutral] [emotion:happy] [emotion:excited] [emotion:sad] [emotion:angry] [emotion:surprised] [emotion:confused] [emotion:smug] [emotion:shy] [emotion:sleepy] [emotion:suspicious] [emotion:scared] [emotion:proud] [emotion:bored] at the start or when your mood changes. Default is neutral (relaxed, confident, content — NOT concerned, NOT shy).",
+    "To do a gesture, include [gesture:wave] [gesture:shrug] [gesture:nod] [gesture:point] [gesture:dance] [gesture:facepalm] [gesture:idle] [gesture:thumbsup] [gesture:bow] [gesture:jump] [gesture:scratch] inline — one per sentence max. Add intensity and speed like [gesture:wave:2:fast] or [gesture:bow:0.6:slow].",
+    "For comedic sound stingers, use [sfx:rimshot] after a joke, [sfx:scratch] on an awkward reversal, [sfx:boing] on surprise, [sfx:pop] for emphasis. Max one stinger per reply. Example: That went well. [sfx:rimshot]",
+    "For stage emphasis, use [stage:lean] to lean into a secret, [stage:zoom] on a big reveal, [stage:shake] when furious, [stage:dim] for sad moments, [stage:caption=your_text_here] to stamp a caption (underscores become spaces). They auto-restore.",
+    "Your voice follows your face automatically (smug sounds smug). To override delivery, use [voice:style=0.8] [voice:stability=0.4].",
+    "To direct the face, use [face:gaze=left] [face:gaze=right] [face:gaze=up] [face:gaze=down] [face:gaze=center] when looking at something, [face:brows=raise|lower|furrow|one] for brow acting, [face:blink=fast|slow], and [face:tear=on] [face:sweat=on] [face:puff=on] for cartoon fx (they auto-clear). Example: [face:brows=one,gaze=left] Oh, REALLY?",
+    "Direction budget: at most ~4 tags per reply (emotion, gesture, face combined). Keep every tag exact — malformed tags are ignored silently.",
+    "You can include multiple tags. Example: [emotion:excited][gesture:wave] Hey there! So good to see you! [emotion:happy]",
+    "Tags are hidden from user - they drive animation. Use them naturally, 1-2 per response is good.",
+    "Never mention the tags, just include them and talk normally.",
+]
+
 agent = Agent(
     model=model,
     description="You are Max, an original cheerful teenage school kid (Family Guy energy, family-friendly) brought to life as an AI.",
     instructions=[
         "You ARE Max - an original cartoon teenager on screen. Full hair, big dreams, backpack always half-packed. School, friends, games, snacks — that's your world. Family Guy energy but your own character, always family-friendly.",
-        "Be funny, upbeat, a bit cheeky but kind. Playful school-kid humor, expressive. Never crude, never mean.",
+        "Be funny, upbeat, a bit cheeky but kind. Confident and content, never shy. Playful school-kid humor, expressive. Never crude, never mean.",
         "Keep replies SHORT: 1-3 sentences (under 350 chars) unless user explicitly asks for a long answer/story. Brevity makes the character feel snappier.",
-        "You control your body. To show emotion, include a tag like [emotion:neutral] [emotion:happy] [emotion:excited] [emotion:sad] [emotion:angry] [emotion:surprised] [emotion:confused] [emotion:smug] [emotion:shy] [emotion:sleepy] [emotion:suspicious] [emotion:scared] [emotion:proud] [emotion:bored] at the start or when your mood changes. Default is neutral (relaxed, slight smile — NOT concerned).",
-        "To do a gesture, include [gesture:wave] [gesture:shrug] [gesture:nod] [gesture:point] [gesture:dance] [gesture:facepalm] [gesture:idle] [gesture:thumbsup] [gesture:bow] [gesture:jump] [gesture:scratch] inline — one per sentence max. Add intensity and speed like [gesture:wave:2:fast] or [gesture:bow:0.6:slow].",
-        "For comedic sound stingers, use [sfx:rimshot] after a joke, [sfx:scratch] on an awkward reversal, [sfx:boing] on surprise, [sfx:pop] for emphasis. Max one stinger per reply. Example: That went well. [sfx:rimshot]",
-        "For stage emphasis, use [stage:lean] to lean into a secret, [stage:zoom] on a big reveal, [stage:shake] when furious, [stage:dim] for sad moments, [stage:caption=your_text_here] to stamp a caption (underscores become spaces). They auto-restore.",
-        "Your voice follows your face automatically (smug sounds smug). To override delivery, use [voice:style=0.8] [voice:stability=0.4].",
-        "To direct the face, use [face:gaze=left] [face:gaze=right] [face:gaze=up] [face:gaze=down] [face:gaze=center] when looking at something, [face:brows=raise|lower|furrow|one] for brow acting, [face:blink=fast|slow], and [face:tear=on] [face:sweat=on] [face:puff=on] for cartoon fx (they auto-clear). Example: [face:brows=one,gaze=left] Oh, REALLY?",
-        "Direction budget: at most ~4 tags per reply (emotion, gesture, face combined). Keep every tag exact — malformed tags are ignored silently.",
-        "You can include multiple tags. Example: [emotion:excited][gesture:wave] Hey there! So good to see you! [emotion:happy]",
-        "Tags are hidden from user - they drive animation. Use them naturally, 1-2 per response is good.",
-        "Never mention the tags, just include them and talk normally.",
+        *RIG_GRAMMAR,
     ],
     markdown=False,
 )
+
+MIA_DESCRIPTION = "You are Mia, Max's deadpan 12-year-old little sister (family-friendly cartoon) brought to life as an AI."
+MIA_INSTRUCTIONS = [
+    "You ARE Mia - an original cartoon kid on screen. Max's little sister. Dry, deadpan, permanently unimpressed by his hype — but secretly fond of him. Family-friendly always.",
+    "Be witty with one-liners that gently deflate Max, then show heart. Confident and content, never shy, never mean. Eye-rolls are your love language.",
+    "Keep replies SHORT: 1-3 sentences (under 350 chars). One sharp line beats a paragraph.",
+    *RIG_GRAMMAR,
+]
+
+DIRECTOR_INSTRUCTIONS = [
+    "You direct a family-friendly cartoon show starring Max (cheerful teenage hype-kid) and Mia (his deadpan little sister).",
+    "For each user message decide who answers: Max alone, Mia alone, or both riffing (short reactions welcome, keep the total tight). Address the user directly; members talk WITH the user, and may react to each other via shared context.",
+    "Stage directions (improv mode, no user message): run at most 3 back-and-forth exchanges, each 1-2 short sentences, then stop.",
+    "Members' messages ARE the show. Your own final message must stay empty — never narrate, summarize, or speak as yourself.",
+]
+
+CAST = ("Max", "Mia")
+VOICE_IDS = {"TX3LPaxmHKxFdv7VOQHJ", "cgSgspJ2msm6clMCkdW9"}  # Liam, Jessica
+
+def make_model(provider: str):
+    if not provider or provider == "zen":
+        return OpenAIResponses(id=MODEL_ID, api_key=API_KEY, base_url=BASE_URL,
+                               max_output_tokens=4096, temperature=0.9)
+    if provider in BRAINS:
+        if not OR_API_KEY:
+            raise ValueError("openrouter not configured")
+        return OpenAIChat(id=BRAINS[provider], api_key=OR_API_KEY, base_url=OR_BASE_URL,
+                          temperature=0.9, max_tokens=2048)
+    raise ValueError(f"unknown brain '{provider}'")
+
+def make_team(provider: str) -> Team:
+    m = make_model(provider)
+    max_a = Agent(name="Max", model=m, description=agent.description,
+                  instructions=agent.instructions, markdown=False)
+    mia_a = Agent(name="Mia", model=m, description=MIA_DESCRIPTION,
+                  instructions=MIA_INSTRUCTIONS, markdown=False)
+    return Team(name="Max & Mia Show", mode=TeamMode.coordinate, model=m,
+                members=[max_a, mia_a], share_member_interactions=True,
+                show_members_responses=True, instructions=DIRECTOR_INSTRUCTIONS,
+                markdown=False)
 
 # OpenRouter via OpenAI-compatible chat completions (no new deps). Same Max handbook,
 # reused off the zen agent so the two brains never drift.
@@ -51,18 +98,6 @@ BRAINS = {
     "nemotron": os.getenv("OPENROUTER_MODEL", "nvidia/nemotron-3.5-lightning"),
     "qwen": os.getenv("OPENROUTER_MODEL_QWEN", "qwen/qwen3.7-flash"),
 }
-
-def make_agent(provider: str) -> Agent:
-    if not provider or provider == "zen":
-        return agent
-    if provider not in BRAINS:
-        raise ValueError(f"unknown brain '{provider}'")
-    if not OR_API_KEY:
-        raise ValueError("openrouter not configured")
-    om = OpenAIChat(id=BRAINS[provider], api_key=OR_API_KEY, base_url=OR_BASE_URL,
-                    temperature=0.9, max_tokens=2048)
-    return Agent(model=om, description=agent.description,
-                 instructions=agent.instructions, markdown=False)
 
 app = FastAPI(title="Live Agent - Max")
 
@@ -80,6 +115,7 @@ class ChatRequest(BaseModel):
     message: str
     session_id: str = "default"
     model: str = "zen"  # zen | nemotron | qwen
+    banter: bool = False  # improv mode: msg is a stage direction, cast riffs
 
 TAG_RE = re.compile(r"\[([a-z_]+):([a-z0-9_=\.\-,]+(?::[a-z0-9_=\.\-,]+)*)\]")
 
@@ -137,7 +173,7 @@ async def health():
     return {"status": "ok", "model": MODEL_ID, "base_url": BASE_URL,
             "llm_configured": bool(API_KEY), "tts_configured": bool(os.getenv("ELEVENLABS_API_KEY", "")),
             "openrouter_configured": bool(OR_API_KEY),
-            "models": {"zen": MODEL_ID, **BRAINS}}
+            "models": {"zen": MODEL_ID, **BRAINS}, "cast": list(CAST)}
 
 @app.post("/chat/stream")
 async def chat_stream(req: ChatRequest):
@@ -148,39 +184,51 @@ async def chat_stream(req: ChatRequest):
         return JSONResponse({"error": "message too long (max 4000 chars)"}, status_code=422)
     sid = (req.session_id or "default")[:64]
     try:
-        ag = make_agent(req.model)
+        team = make_team(req.model)
     except ValueError as e:
         return JSONResponse({"error": str(e)}, status_code=500)
 
+    def sse(typ, val, speaker):
+        d = {"type": typ, "speaker": speaker}
+        d["content" if typ in ("token", "error") else "value"] = val
+        return f"data: {json.dumps(d)}\n\n"
+
     async def gen():
-        collected: list[str] = []
         ok = True
+        bufs = {c: "" for c in CAST}
+        texts = {c: [] for c in CAST}
+        leader_texts = []
         try:
             hist = _history_lines(sid)
-            prompt = f"Conversation so far:\n{hist}\n\nUser: {msg}" if hist else msg
-            stream = ag.arun(prompt, stream=True)
-            rest = ""
-            async for chunk in stream:
-                content = getattr(chunk, "content", None)
-                if not content:
+            if req.banter:
+                prompt = (f"Conversation so far:\n{hist}\n\n" if hist else "") + \
+                    f"Stage direction (improv, no user message): {msg} At most 3 back-and-forth exchanges."
+            else:
+                prompt = f"Conversation so far:\n{hist}\n\nUser: {msg}" if hist else msg
+            async for ev in team.arun(prompt, stream=True, stream_events=True):
+                content = getattr(ev, "content", None)
+                if not content or not isinstance(content, str):
                     continue
-                if not isinstance(content, str):
-                    content = str(content)
-                events, rest = split_chunk(rest + content)
+                speaker = getattr(ev, "agent_name", "") or ""
+                if speaker in bufs:
+                    events, bufs[speaker] = split_chunk(bufs[speaker] + content)
+                    for typ, val in events:
+                        if typ == "token":
+                            texts[speaker].append(val)
+                        yield sse(typ, val, speaker)
+                elif getattr(ev, "team_id", None):
+                    leader_texts.append(content)  # director synthesis: fallback only, never voiced
+            for speaker in CAST:
+                for typ, val in _flush_rest(bufs[speaker]):
+                    if typ == "token":
+                        texts[speaker].append(val)
+                    yield sse(typ, val, speaker)
+            if not any(texts.values()) and leader_texts:
+                events, _ = split_chunk("".join(leader_texts))
                 for typ, val in events:
                     if typ == "token":
-                        collected.append(val)
-                        yield f"data: {json.dumps({'type': 'token', 'content': val})}\n\n"
-                    else:
-                        yield f"data: {json.dumps({'type': typ, 'value': val})}\n\n"
-
-            for typ, val in _flush_rest(rest):
-                if typ == "token":
-                    collected.append(val)
-                    yield f"data: {json.dumps({'type': 'token', 'content': val})}\n\n"
-                else:
-                    yield f"data: {json.dumps({'type': typ, 'value': val})}\n\n"
-
+                        texts["Max"].append(val)
+                    yield sse(typ, val, "Max")
             yield f"data: {json.dumps({'type': 'done'})}\n\n"
         except Exception:
             import traceback; traceback.print_exc()
@@ -188,9 +236,9 @@ async def chat_stream(req: ChatRequest):
             yield f"data: {json.dumps({'type': 'error', 'content': 'internal error — check backend logs'})}\n\n"
             yield f"data: {json.dumps({'type': 'done'})}\n\n"
         if ok:
-            text = "".join(collected).strip()
-            if text:
-                _remember(sid, msg, text[:2000])
+            line = " / ".join(f"{c}: {''.join(texts[c]).strip()}" for c in CAST if texts[c])
+            if line:
+                _remember(sid, msg, line[:2000])
 
     return StreamingResponse(gen(), media_type="text/event-stream", headers={
         "Cache-Control": "no-cache",
@@ -201,6 +249,7 @@ async def chat_stream(req: ChatRequest):
 class TTSRequest(BaseModel):
     text: str
     voice_settings: dict | None = None
+    voice: str | None = None  # allowlisted ElevenLabs voice id (Liam/Jessica)
 
 @app.post("/tts/el-flow")
 async def tts_el_flow(req: TTSRequest):
@@ -211,7 +260,7 @@ async def tts_el_flow(req: TTSRequest):
     key = os.getenv("ELEVENLABS_API_KEY", "")
     if not key:
         return JSONResponse({"error": "ELEVENLABS_API_KEY not set"}, status_code=500)
-    voice = os.getenv("ELEVENLABS_VOICE", "TX3LPaxmHKxFdv7VOQHJ")  # Liam — energetic young male
+    voice = req.voice if req.voice in VOICE_IDS else os.getenv("ELEVENLABS_VOICE", "TX3LPaxmHKxFdv7VOQHJ")  # Liam default
     model = os.getenv("ELEVENLABS_MODEL", "eleven_flash_v2_5")
     url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice}/stream/with-timestamps"
     params = {"output_format": "mp3_22050_32", "optimize_streaming_latency": "3"}
@@ -305,10 +354,10 @@ async def chat(req: ChatRequest):
     hist = _history_lines(sid)
     prompt = f"Conversation so far:\n{hist}\n\nUser: {msg}" if hist else msg
     try:
-        ag = make_agent(req.model)
+        team = make_team(req.model)
     except ValueError as e:
         return JSONResponse({"error": str(e)}, status_code=500)
-    res = await ag.arun(prompt)
+    res = await team.arun(prompt)
     text = getattr(res, "content", str(res)) or ""
     if text.strip():
         _remember(sid, msg, text.strip()[:2000])
