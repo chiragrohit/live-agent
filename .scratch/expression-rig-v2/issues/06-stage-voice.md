@@ -4,7 +4,7 @@
 
 **Blocked by:** 01 (needs the registry and channel vocabulary).
 
-**Status:** ready-for-agent
+**Status:** done (shipped; voice_settings forwarded live, SSE shows angry+furrow+jump:3:fast)
 
 - [ ] A stage direction (e.g. lean-in or shake) performs on the tagged spoken word and restores cleanly
 - [ ] The same line acted sad vs excited produces audibly different vocal delivery
