@@ -37,35 +37,45 @@ RIG_GRAMMAR = [
     "Never mention the tags, just include them and talk normally.",
 ]
 
-agent = Agent(
-    model=model,
-    description="You are Max, an original cheerful teenage school kid (Family Guy energy, family-friendly) brought to life as an AI.",
-    instructions=[
-        "You ARE Max - an original cartoon teenager on screen. Full hair, big dreams, backpack always half-packed. School, friends, games, snacks — that's your world. Family Guy energy but your own character, always family-friendly.",
-        "Be funny, upbeat, a bit cheeky but kind. Confident and content, never shy. Playful school-kid humor, expressive. Never crude, never mean.",
-        "Keep replies SHORT: 1-3 sentences (under 350 chars) unless user explicitly asks for a long answer/story. Brevity makes the character feel snappier.",
-        *RIG_GRAMMAR,
-    ],
-    markdown=False,
-)
+# One entry per cast member = one more character on stage. description +
+# instructions build their Agent, voice picks their ElevenLabs voice, look
+# drives the frontend variant (hair/style), role feeds the director.
+CHARACTERS = {
+    "Max": {
+        "voice": "TX3LPaxmHKxFdv7VOQHJ",  # Liam — energetic young male
+        "look": "male",
+        "role": "cheerful teenage hype-kid",
+        "description": "You are Max, an original cheerful teenage school kid (Family Guy energy, family-friendly) brought to life as an AI.",
+        "instructions": [
+            "You ARE Max - an original cartoon teenager on screen. Full hair, big dreams, backpack always half-packed. School, friends, games, snacks — that's your world. Family Guy energy but your own character, always family-friendly.",
+            "Be funny, upbeat, a bit cheeky but kind. Confident and content, never shy. Playful school-kid humor, expressive. Never crude, never mean.",
+            "Keep replies SHORT: 1-3 sentences (under 350 chars) unless user explicitly asks for a long answer/story. Brevity makes the character feel snappier.",
+            *RIG_GRAMMAR,
+        ],
+    },
+    "Mia": {
+        "voice": "cgSgspJ2msm6clMCkdW9",  # Jessica — bright young female
+        "look": "female",
+        "role": "his deadpan little sister",
+        "description": "You are Mia, Max's deadpan 12-year-old little sister (family-friendly cartoon) brought to life as an AI.",
+        "instructions": [
+            "You ARE Mia - an original cartoon kid on screen. Max's little sister. Dry, deadpan, permanently unimpressed by his hype — but secretly fond of him. Family-friendly always.",
+            "Be witty with one-liners that gently deflate Max, then show heart. Confident and content, never shy, never mean. Eye-rolls are your love language.",
+            "Keep replies SHORT: 1-3 sentences (under 350 chars). One sharp line beats a paragraph.",
+            *RIG_GRAMMAR,
+        ],
+    },
+}
 
-MIA_DESCRIPTION = "You are Mia, Max's deadpan 12-year-old little sister (family-friendly cartoon) brought to life as an AI."
-MIA_INSTRUCTIONS = [
-    "You ARE Mia - an original cartoon kid on screen. Max's little sister. Dry, deadpan, permanently unimpressed by his hype — but secretly fond of him. Family-friendly always.",
-    "Be witty with one-liners that gently deflate Max, then show heart. Confident and content, never shy, never mean. Eye-rolls are your love language.",
-    "Keep replies SHORT: 1-3 sentences (under 350 chars). One sharp line beats a paragraph.",
-    *RIG_GRAMMAR,
-]
+CAST = tuple(CHARACTERS)
+VOICE_IDS = {c["voice"] for c in CHARACTERS.values()}
 
 DIRECTOR_INSTRUCTIONS = [
-    "You direct a family-friendly cartoon show starring Max (cheerful teenage hype-kid) and Mia (his deadpan little sister).",
-    "For each user message decide who answers: Max alone, Mia alone, or both riffing (short reactions welcome, keep the total tight). Address the user directly; members talk WITH the user, and may react to each other via shared context.",
+    f"You direct a family-friendly cartoon show starring " + ", ".join(f"{n} ({c['role']})" for n, c in CHARACTERS.items()) + ".",
+    "For each user message decide who answers: one member alone, or members riffing (short reactions welcome, keep the total tight). Address the user directly; members talk WITH the user, and may react to each other via shared context.",
     "Stage directions (improv mode, no user message): run at most 3 back-and-forth exchanges, each 1-2 short sentences, then stop.",
     "Members' messages ARE the show. Your own final message must stay empty — never narrate, summarize, or speak as yourself.",
 ]
-
-CAST = ("Max", "Mia")
-VOICE_IDS = {"TX3LPaxmHKxFdv7VOQHJ", "cgSgspJ2msm6clMCkdW9"}  # Liam, Jessica
 
 def make_model(provider: str):
     if not provider or provider == "zen":
@@ -80,12 +90,11 @@ def make_model(provider: str):
 
 def make_team(provider: str) -> Team:
     m = make_model(provider)
-    max_a = Agent(name="Max", model=m, description=agent.description,
-                  instructions=agent.instructions, markdown=False)
-    mia_a = Agent(name="Mia", model=m, description=MIA_DESCRIPTION,
-                  instructions=MIA_INSTRUCTIONS, markdown=False)
-    return Team(name="Max & Mia Show", mode=TeamMode.coordinate, model=m,
-                members=[max_a, mia_a], share_member_interactions=True,
+    members = [Agent(name=n, model=m, description=c["description"],
+                     instructions=c["instructions"], markdown=False)
+               for n, c in CHARACTERS.items()]
+    return Team(name=" & ".join(CAST) + " Show", mode=TeamMode.coordinate, model=m,
+                members=members, share_member_interactions=True,
                 show_members_responses=True, instructions=DIRECTOR_INSTRUCTIONS,
                 markdown=False)
 
@@ -206,6 +215,8 @@ async def chat_stream(req: ChatRequest):
             else:
                 prompt = f"Conversation so far:\n{hist}\n\nUser: {msg}" if hist else msg
             async for ev in team.arun(prompt, stream=True, stream_events=True):
+                if "Content" not in type(ev).__name__:
+                    continue  # Started/Completed events re-emit full text = exact repeats
                 content = getattr(ev, "content", None)
                 if not content or not isinstance(content, str):
                     continue
@@ -260,7 +271,7 @@ async def tts_el_flow(req: TTSRequest):
     key = os.getenv("ELEVENLABS_API_KEY", "")
     if not key:
         return JSONResponse({"error": "ELEVENLABS_API_KEY not set"}, status_code=500)
-    voice = req.voice if req.voice in VOICE_IDS else os.getenv("ELEVENLABS_VOICE", "TX3LPaxmHKxFdv7VOQHJ")  # Liam default
+    voice = req.voice if req.voice in VOICE_IDS else CHARACTERS["Max"]["voice"]
     model = os.getenv("ELEVENLABS_MODEL", "eleven_flash_v2_5")
     url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice}/stream/with-timestamps"
     params = {"output_format": "mp3_22050_32", "optimize_streaming_latency": "3"}
@@ -335,6 +346,7 @@ async def tts_voices():
         "provider": "elevenlabs",
         "default": os.getenv("ELEVENLABS_VOICE", "TX3LPaxmHKxFdv7VOQHJ"),
         "model": os.getenv("ELEVENLABS_MODEL", "eleven_flash_v2_5"),
+        "cast": {n: {"voice": c["voice"], "look": c["look"]} for n, c in CHARACTERS.items()},
         "candidates": {
             "Liam": "TX3LPaxmHKxFdv7VOQHJ",
             "Harry": "SOYHLrjzK2X1ezoPC6cr",
