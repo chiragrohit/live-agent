@@ -4,7 +4,7 @@
 
 **Blocked by:** 01 (needs the registry; stingers and gestures are new registry entries).
 
-**Status:** ready-for-agent
+**Status:** done (shipped; live SSE: joke → sfx:rimshot → bow:2:slow, unprompted)
 
 - [ ] A stinger direction plays its sound audibly aligned with the tagged spoken word
 - [ ] Four new gestures perform fully and restore to neutral cleanly

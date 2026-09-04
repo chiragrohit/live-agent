@@ -181,7 +181,26 @@ function faceBrows(v){
   else if(v==="furrow"){ gsap.to(browL,{y:3,rotation:-18,duration:.2}); gsap.to(browR,{y:3,rotation:18,duration:.2}); }
   else if(v==="one"){ gsap.to(browL,{y:-10,rotation:-10,duration:.25}); gsap.to(browR,{y:2,rotation:2,duration:.25}); }
 }
+const stage=$('#stage'), chemTrail=$('.chem-trail');
+let stageTimer=null;
+function stageRestore(ms=2500){
+  clearTimeout(stageTimer);
+  stageTimer=setTimeout(()=>{
+    gsap.to(char,{scale:1,x:0,duration:.4,ease:"sine.out"});
+    if(stage) gsap.to(stage,{scale:1,x:0,duration:.4,ease:"sine.out"});
+    if(stage) gsap.to(stage,{filter:"brightness(1)",duration:.4});
+    if(chemTrail) chemTrail.textContent="SOUTH PARK AGENT";
+  },ms);
+}
 const tagHandlers={
+  stage:(payload)=>{ for(const part of String(payload).split(",")){ const kv=part.split("="); const k=kv[0], v=kv[1];
+    if(k==="lean"&&v!=="off") gsap.to(char,{scale:1.12,duration:.35,ease:"power2.out"});
+    else if(k==="zoom"&&v!=="off"){ if(stage) gsap.to(stage,{scale:1.07,duration:.35,ease:"power2.out"}); }
+    else if(k==="shake") gsap.to(char,{x:6,duration:.05,yoyo:true,repeat:9,onComplete:()=>gsap.set(char,{x:0})});
+    else if(k==="dim"){ if(stage) gsap.to(stage,{filter:"brightness(.82)",duration:.4}); }
+    else if(k==="caption"&&v&&chemTrail) chemTrail.textContent=v.replace(/_/g," ").slice(0,40);
+    stageRestore();
+  } },
   face:(payload)=>{ for(const part of String(payload).split(",")){ const kv=part.split("="); const k=kv[0], v=kv[1];
     if(k==="gaze"&&v) setGaze(v);
     else if(k==="brows"&&v) faceBrows(v);
@@ -292,11 +311,28 @@ let sessionId = localStorage.getItem('sessionId') || (Math.random().toString(36)
 localStorage.setItem('sessionId', sessionId);
 
 // --- elevenlabs flow: NDJSON {audio b64, char timings}, reveal + tags driven by REAL timestamps ---
-function startElFlow(text){
+// voice mood: sentence emotion -> elevenlabs voice settings, explicit voice: tags override
+const voiceMood={
+  smug:{stability:.6,style:.7}, sad:{stability:.8,style:.3}, excited:{stability:.4,style:.8},
+  angry:{stability:.35,style:.9}, happy:{stability:.5,style:.6}, surprised:{stability:.45,style:.75},
+  sleepy:{stability:.85,style:.2}, shy:{stability:.7,style:.35}, scared:{stability:.4,style:.8},
+  proud:{stability:.6,style:.65}, bored:{stability:.8,style:.25}, confused:{stability:.6,style:.4},
+};
+function voiceSettingsFor(item){
+  const out={...(voiceMood[item.emotion]||{})};
+  for(const s of (item.tagSlots||[])){
+    if(s.type==="tag"&&s.channel==="voice"){
+      for(const part of String(s.value).split(",")){ const kv=part.split("="); const f=parseFloat(kv[1]);
+        if((kv[0]==="style"||kv[0]==="stability"||kv[0]==="similarity")&&isFinite(f)) out[kv[0]==="similarity"?"similarity_boost":kv[0]]=Math.max(0,Math.min(1,f)); }
+    }
+  }
+  return Object.keys(out).length?out:null;
+}
+function startElFlow(text, settings){
   const h={events:[], idx:0, done:false, error:null};
   (async()=>{
     try{
-      const r=await fetch('/tts/el-flow',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text})});
+      const r=await fetch('/tts/el-flow',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(settings?{text, voice_settings:settings}:{text})});
       if(!r.ok || !r.body) throw new Error('el-flow '+r.status);
       const reader=r.body.getReader(); const dec=new TextDecoder(); let buf=""; let got=false;
       const push=(line)=>{
@@ -464,7 +500,7 @@ async function send(){
       revealTimer=setTimeout(step, totalMs/Math.max(1,words.length));
     });
     // elevenlabs only: timestamp-driven playback, estimated silent fallback
-    const elHandle=item.elFlow ?? startElFlow(item.text);
+    const elHandle=item.elFlow ?? startElFlow(item.text, voiceSettingsFor(item));
     try{ await playElFlow(elHandle, item, ui); return; }
     catch(e){ console.warn('el flow failed, silent fallback', e.message); }
     await fakeSpeak(Math.min(5000, Math.max(900, item.text.length*28)));
@@ -481,7 +517,7 @@ async function send(){
       const item=queue.shift();
       if(!started){ started=true; statusEl.classList.remove('thinking'); botBubble.textContent=""; displayed=""; setEmotion('neutral'); }
       // one-ahead prefetch: start next sentence el-flow while current speaks
-      if(queue.length>0){ const nx=queue[0]; if(!nx.elFlow) nx.elFlow=startElFlow(nx.text); }
+      if(queue.length>0){ const nx=queue[0]; if(!nx.elFlow) nx.elFlow=startElFlow(nx.text, voiceSettingsFor(nx)); }
       if(!talking) startTalking();
       await speak(item);
       if(queue.length>0) await new Promise(r=> setTimeout(r, 120));

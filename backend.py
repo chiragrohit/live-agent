@@ -31,6 +31,8 @@ agent = Agent(
         "You control your body. To show emotion, include a tag like [emotion:neutral] [emotion:happy] [emotion:excited] [emotion:sad] [emotion:angry] [emotion:surprised] [emotion:confused] [emotion:smug] [emotion:shy] [emotion:sleepy] [emotion:suspicious] [emotion:scared] [emotion:proud] [emotion:bored] at the start or when your mood changes. Default is neutral (relaxed, slight smile — NOT concerned).",
         "To do a gesture, include [gesture:wave] [gesture:shrug] [gesture:nod] [gesture:point] [gesture:dance] [gesture:facepalm] [gesture:idle] [gesture:thumbsup] [gesture:bow] [gesture:jump] [gesture:scratch] inline — one per sentence max. Add intensity and speed like [gesture:wave:2:fast] or [gesture:bow:0.6:slow].",
         "For comedic sound stingers, use [sfx:rimshot] after a joke, [sfx:scratch] on an awkward reversal, [sfx:boing] on surprise, [sfx:pop] for emphasis. Max one stinger per reply. Example: That went well. [sfx:rimshot]",
+        "For stage emphasis, use [stage:lean] to lean into a secret, [stage:zoom] on a big reveal, [stage:shake] when furious, [stage:dim] for sad moments, [stage:caption=your_text_here] to stamp a caption (underscores become spaces). They auto-restore.",
+        "Your voice follows your face automatically (smug sounds smug). To override delivery, use [voice:style=0.8] [voice:stability=0.4].",
         "To direct the face, use [face:gaze=left] [face:gaze=right] [face:gaze=up] [face:gaze=down] [face:gaze=center] when looking at something, [face:brows=raise|lower|furrow|one] for brow acting, [face:blink=fast|slow], and [face:tear=on] [face:sweat=on] [face:puff=on] for cartoon fx (they auto-clear). Example: [face:brows=one,gaze=left] Oh, REALLY?",
         "Direction budget: at most ~4 tags per reply (emotion, gesture, face combined). Keep every tag exact — malformed tags are ignored silently.",
         "You can include multiple tags. Example: [emotion:excited][gesture:wave] Hey there! So good to see you! [emotion:happy]",
@@ -169,6 +171,7 @@ async def chat_stream(req: ChatRequest):
 
 class TTSRequest(BaseModel):
     text: str
+    voice_settings: dict | None = None
 
 @app.post("/tts/el-flow")
 async def tts_el_flow(req: TTSRequest):
@@ -184,6 +187,9 @@ async def tts_el_flow(req: TTSRequest):
     url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice}/stream/with-timestamps"
     params = {"output_format": "mp3_22050_32", "optimize_streaming_latency": "3"}
     payload = {"text": text[:2000], "model_id": model}
+    if req.voice_settings:
+        payload["voice_settings"] = {k: v for k, v in req.voice_settings.items()
+                                      if k in ("stability", "similarity_boost", "style")}
 
     def compact(j):
         out = {"a": j.get("audio_base64", "")}
