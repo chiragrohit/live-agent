@@ -117,6 +117,14 @@ h1 span{background:#1a1a1a;color:#fff;padding:3px 9px;border-radius:999px;margin
 .fx-tear{position:absolute;left:26%;top:52%;width:10px;height:14px;background:#6ec6ff;border:2px solid #1a1a1a;border-radius:50% 50% 60% 60%;opacity:0;pointer-events:none}
 .fx-sweat{position:absolute;right:20%;top:30%;width:12px;height:15px;background:#b3e5fc;border:2px solid #1a1a1a;border-radius:50% 50% 60% 60%;opacity:0;pointer-events:none}
 .fx-puff{position:absolute;right:8%;top:6%;font-size:26px;opacity:0;pointer-events:none}
+/* pixel Max: every character part is a square block (UI stays rounded) */
+.head,.eye,.pupil,.pupil::after,.brow,.ear,.nose,.jaw,.cheek,
+.body,.body::after,.arm,.hand,.leg,.leg::after,.mouth,.teeth,.tongue,
+.haircap{border-radius:0 !important}
+.haircap::before{content:"";position:absolute;bottom:-14px;left:30px;width:24px;height:24px;background:var(--hair);border:none;border-left:3px solid #1a1a1a;border-right:3px solid #1a1a1a}
+.haircap::after{content:"";position:absolute;bottom:-14px;right:30px;width:24px;height:24px;background:var(--hair);border:none;border-left:3px solid #1a1a1a;border-right:3px solid #1a1a1a}
+.head{box-shadow:inset -10px -10px 0 rgba(0,0,0,.07)}
+.body{box-shadow:inset -6px -6px 0 rgba(0,0,0,.12)}
 /* desktop: character stage centre, chat docks as a right sidebar. Phone keeps stacked column. */
 @media (min-width:901px){
   .wrap{flex-direction:row;align-items:stretch;justify-content:center;width:min(1180px,96vw)}
