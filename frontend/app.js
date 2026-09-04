@@ -59,7 +59,67 @@ function windUp(dur=0.14){ gsap.to(char,{scaleY:.9,scaleX:1.07,duration:dur,ease
 function popUp(h=8){ gsap.timeline().to(char,{scaleY:1.08,scaleX:.94,y:-h,duration:.16,ease:"power2.out"}).to(char,{scaleY:1,scaleX:1,y:0,duration:.4,ease:"elastic.out(1,0.45)"}); }
 function headBoing(){ gsap.timeline().to(head,{scaleY:.88,scaleX:1.1,duration:.1,ease:"power2.in"}).to(head,{scaleY:1.06,scaleX:.95,duration:.14}).to(head,{scaleY:1,scaleX:1,duration:.35,ease:"elastic.out(1,0.4)"}); }
 
+// -- sfx: synthesized comedic stingers, no assets. Fired from the sfx: channel. --
+function sfxCtx(){
+  try{
+    if(!audioCtx) audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+    if(audioCtx.state==="suspended") audioCtx.resume().catch(()=>{});
+    return audioCtx;
+  }catch{ return null; }
+}
+function sfxPlay(name){
+  const ctx=sfxCtx(); if(!ctx) return;
+  try{
+    const t=ctx.currentTime;
+    const tone=(f0,f1,dur,type="sine",vol=.25)=>{
+      const o=ctx.createOscillator(), g=ctx.createGain();
+      o.type=type; o.frequency.setValueAtTime(f0,t); o.frequency.exponentialRampToValueAtTime(Math.max(1,f1),t+dur);
+      g.gain.setValueAtTime(vol,t); g.gain.exponentialRampToValueAtTime(.001,t+dur);
+      o.connect(g); g.connect(ctx.destination); o.start(t); o.stop(t+dur+.02);
+    };
+    const noise=(dur=.12,vol=.3,ff=2000)=>{
+      const n=Math.floor(ctx.sampleRate*dur), b=ctx.createBuffer(1,n,ctx.sampleRate), d=b.getChannelData(0);
+      for(let i=0;i<n;i++) d[i]=(Math.random()*2-1)*(1-i/n);
+      const s=ctx.createBufferSource(); s.buffer=b;
+      const f=ctx.createBiquadFilter(); f.type="bandpass"; f.frequency.value=ff;
+      const g=ctx.createGain(); g.gain.setValueAtTime(vol,t); g.gain.exponentialRampToValueAtTime(.001,t+dur);
+      s.connect(f); f.connect(g); g.connect(ctx.destination); s.start(t);
+    };
+    if(name==="pop") tone(600,200,.09,"sine",.3);
+    else if(name==="boing"){ tone(300,80,.28,"triangle",.3); tone(150,320,.2,"sine",.15); }
+    else if(name==="rimshot"){ noise(.1,.35,2500); tone(800,700,.06,"square",.12); setTimeout(()=>{ try{ noise(.14,.4,1800); tone(500,400,.09,"square",.15); }catch{} },140); }
+    else if(name==="scratch"){ tone(400,100,.18,"sawtooth",.2); setTimeout(()=>sfxPlay("scratch2"),180); }
+    else if(name==="scratch2"){ const o=ctx.createOscillator(), g=ctx.createGain(), t2=ctx.currentTime; o.type="sawtooth"; o.frequency.setValueAtTime(100,t2); o.frequency.exponentialRampToValueAtTime(350,t2+.2); g.gain.setValueAtTime(.2,t2); g.gain.exponentialRampToValueAtTime(.001,t2+.22); o.connect(g); g.connect(ctx.destination); o.start(t2); o.stop(t2+.25); }
+  }catch(e){ console.warn('sfx failed',name,e); }
+}
+
 // -- gestures --
+// gesture player: name[:intensity[:speed]] — intensity scales amplitude, speed scales time
+function gesturePlay(payload){
+  const parts=String(payload||"").split(":");
+  const name=parts[0];
+  const k=Math.max(.4,Math.min(2.5,parseFloat(parts[1])||1));
+  const tm=parts[2]==="fast"?.55:parts[2]==="slow"?1.7:1;
+  const D=(d)=>d*tm, A=(deg)=>deg*k;
+  if(name==="thumbsup"){
+    gsap.to(armR,{rotation:-A(150), duration:D(.3), ease:"back.out(1.5)"});
+    gsap.to(head,{y:5, duration:D(.14), yoyo:true, repeat:1, delay:D(.3)});
+    setTimeout(()=>gsap.to(armR,{rotation:18, duration:D(.4)}), D(800));
+  } else if(name==="bow"){
+    gsap.to(head,{y:14, duration:D(.35), ease:"power2.in"});
+    gsap.to(armL,{rotation:-30, duration:D(.35)}); gsap.to(armR,{rotation:30, duration:D(.35)});
+    setTimeout(()=>{ gsap.to(head,{y:0,duration:D(.4),ease:"elastic.out(1,0.5)"}); gsap.to(armL,{rotation:-18,duration:D(.4)}); gsap.to(armR,{rotation:18,duration:D(.4)}); }, D(650));
+  } else if(name==="jump"){
+    windUp(D(.12)); setTimeout(()=>popUp(6+8*k), D(130));
+  } else if(name==="scratch"){
+    gsap.to(armR,{rotation:-A(120), duration:D(.3)});
+    gsap.to(head,{rotation:6, duration:D(.25)});
+    gsap.to(head,{x:3, duration:D(.09), yoyo:true, repeat:5, delay:D(.3)});
+    setTimeout(()=>{ gsap.to(armR,{rotation:18,duration:D(.4)}); gsap.to(head,{rotation:0,x:0,duration:D(.3)}); }, D(900));
+  } else {
+    doGesture(name);
+  }
+}
 function doGesture(g){
   if(g==="idle"){
     gsap.to(armL,{rotation:-18,y:0,duration:.5,ease:"sine.out"});
@@ -130,11 +190,12 @@ const tagHandlers={
     else if(k==="sweat") fxShow(fxSweat, v!=="off");
     else if(k==="puff") fxShow(fxPuff, v!=="off");
   } },
+  sfx:(name)=>sfxPlay(String(name||"").split(",")[0]),
 };
 function fireSlot(s){
   if(!s||s.fired) return; s.fired=true;
   if(s.type==="emotion") setEmotion(s.value);
-  else if(s.type==="gesture") setTimeout(()=>doGesture(s.value),120);
+  else if(s.type==="gesture") setTimeout(()=>gesturePlay(s.value),120);
   else if(s.type==="tag"){ const fn=tagHandlers[s.channel]; if(fn){ try{fn(s.value);}catch(e){console.warn('tag handler failed',s.channel,e);} } }
 }
 
@@ -394,7 +455,7 @@ async function send(){
   const ui={renderShown, commitItem, clearReveal, armReveal};
   const speak=async(item)=>{
     const words=item.text.split(/\s+/).filter(Boolean);
-    const fireTags=()=>{ if(item.emotion) setEmotion(item.emotion); if(item.gesture) setTimeout(()=>doGesture(item.gesture), 180); };
+    const fireTags=()=>{ if(item.emotion) setEmotion(item.emotion); if(item.gesture) setTimeout(()=>gesturePlay(item.gesture), 180); };
     const fakeSpeak=(totalMs)=>new Promise((res)=>{
       fireTags(); for(const s of (item.tagSlots||[])) if(s.type==="tag") fireSlot({...s});
       if(!talking) startTalking();

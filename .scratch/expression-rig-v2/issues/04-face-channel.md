@@ -4,7 +4,7 @@
 
 **Blocked by:** 01 (needs the registry and the channel vocabulary it introduces).
 
-**Status:** ready-for-agent
+**Status:** done (shipped; live SSE shows mixed emotion/gesture/face directions)
 
 - [ ] A per-feature face direction (e.g. one raised brow with sideways gaze) performs on the spoken word
 - [ ] Four new emotions read clearly distinct from the existing ten
