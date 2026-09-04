@@ -5,6 +5,8 @@ const eyeL = $('#eyeL'), eyeR = $('#eyeR'), lidL = $('#lidL'), lidR = $('#lidR')
 const pupilL = $('#pupilL'), pupilR = $('#pupilR');
 const browL = $('#browL'), browR = $('#browR');
 const armL = $('#armL'), armR = $('#armR');
+const jaw = $('#jaw');
+const jawPose={surprised:12, scared:10, excited:5, angry:4, happy:3, sad:2, proud:2};
 
 let talking = false;
 let talkTimer = null;
@@ -51,6 +53,7 @@ const emotions = {
 function setEmotion(e){
   (emotions[e]||emotions.neutral)();
   blinkDelay=blinkMood[e]||2600;
+  gsap.to(jaw,{y:jawPose[e]||0,duration:.3,ease:"power2.out"});
   statusEl.textContent = e + " • " + (talking ? "talking" : "idle");
 }
 
@@ -190,7 +193,7 @@ function stageRestore(ms=2500){
     gsap.to(char,{scale:1,x:0,duration:.4,ease:"sine.out"});
     if(stage) gsap.to(stage,{scale:1,x:0,duration:.4,ease:"sine.out"});
     if(stage) gsap.to(stage,{filter:"brightness(1)",duration:.4});
-    if(chemTrail) chemTrail.textContent="SOUTH PARK AGENT";
+    if(chemTrail) chemTrail.textContent="THE FRANK SHOW";
   },ms);
 }
 const tagHandlers={
@@ -630,4 +633,4 @@ sendBtn.onclick = send;
 input.addEventListener('keydown', e=>{ if(e.key==="Enter") send(); });
 
 // demo greeting
-setTimeout(()=>addBubble("Hey! I'm your South Park agent — talk to me and watch me move. Try 'be super excited and wave!'","bot"), 400);
+setTimeout(()=>addBubble("Hey! I'm Frank — talk to me and watch me move. Try 'be super excited and wave!'","bot"), 400);
