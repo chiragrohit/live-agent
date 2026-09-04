@@ -17,7 +17,7 @@ load_dotenv()
 API_KEY = os.getenv("OPENCODE_API_KEY", "")
 BASE_URL_RAW = os.getenv("OPENCODE_BASE_URL", "https://opencode.ai/zen/go/v1")
 BASE_URL = BASE_URL_RAW.replace("/responses", "").rstrip("/")
-MODEL_ID = os.getenv("MODEL_ID", "muse-spark-1.2-contributor")
+MODEL_ID = os.getenv("MODEL_ID", "muse-spark-1.3-contributor")
 
 model = OpenAIResponses(id=MODEL_ID, api_key=API_KEY, base_url=BASE_URL, max_output_tokens=4096, temperature=0.9)
 
