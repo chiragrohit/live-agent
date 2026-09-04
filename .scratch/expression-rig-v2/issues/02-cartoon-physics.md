@@ -4,7 +4,7 @@
 
 **Blocked by:** 01 (needs the registry so physics helpers compose with tag handlers instead of fighting them).
 
-**Status:** ready-for-agent
+**Status:** done (shipped; live SSE fires excited+dance into the physics path)
 
 - [ ] Jumps and excited moves visibly squash before, stretch through, and overshoot-settle on landing
 - [ ] Big gestures wind up briefly before firing rather than starting cold

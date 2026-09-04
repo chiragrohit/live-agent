@@ -25,7 +25,7 @@ setInterval(()=>{
 function blink(){
   gsap.to([lidL,lidR], { y: "0%", duration: 0.06, ease:"power2.in" });
   gsap.to([lidL,lidR], { y: "-100%", duration: 0.08, delay: 0.09, ease:"power2.out" });
-  blinkTimer = setTimeout(blink, 2200 + Math.random()*2200);
+  blinkTimer = setTimeout(blink, blinkDelay + Math.random()*1200);
 }
 gsap.set([lidL,lidR], { y:"-100%" });
 blink();
@@ -45,6 +45,7 @@ const emotions = {
 }
 function setEmotion(e){
   (emotions[e]||emotions.neutral)();
+  blinkDelay=blinkMood[e]||2600;
   statusEl.textContent = e + " • " + (talking ? "talking" : "idle");
 }
 
@@ -90,6 +91,7 @@ function doGesture(g){
 function setGaze(dir){
   const P={left:[-9,0],right:[9,0],up:[0,-5],down:[0,4],center:[0,0],camera:[0,0]};
   const p=P[dir]||P.center;
+  gazeHoldUntil=Date.now()+3000;
   gsap.to([pupilL,pupilR],{x:p[0],y:p[1],duration:.25,ease:"power2.out"});
 }
 const tagHandlers={
@@ -101,6 +103,19 @@ function fireSlot(s){
   else if(s.type==="gesture") setTimeout(()=>doGesture(s.value),120);
   else if(s.type==="tag"){ const fn=tagHandlers[s.channel]; if(fn){ try{fn(s.value);}catch(e){console.warn('tag handler failed',s.channel,e);} } }
 }
+
+// -- living eyes: cursor tracking when idle, mood-driven blink rate --
+let gazeHoldUntil=0, blinkDelay=2600;
+const blinkMood={surprised:900, excited:1600, sleepy:4200, sad:3200};
+window.addEventListener('mousemove',(e)=>{
+  if(talking || Date.now()<gazeHoldUntil) return;
+  try{
+    const r=char.getBoundingClientRect();
+    const dx=Math.max(-9,Math.min(9,(e.clientX-(r.left+r.width/2))/28));
+    const dy=Math.max(-5,Math.min(5,(e.clientY-(r.top+r.height/3))/34));
+    gsap.to([pupilL,pupilR],{x:dx,y:dy,duration:.3,ease:"power2.out"});
+  }catch{}
+});
 
 // -- lip sync (fake + audio-driven) --
 let audioEl=null, audioCtx=null, analyser=null, audioSrc=null, rafId=null;
@@ -132,6 +147,7 @@ function startAudioLipSync(audio){
     const data = new Uint8Array(analyser.frequencyBinCount);
     const tick=()=>{
       if(!talking || audio.paused) return;
+      if(vowelClock) return; // measured mouth shapes own the mouth when timing exists
       analyser.getByteFrequencyData(data);
       const avg = data.reduce((a,b)=>a+b,0)/data.length; // 0-255
       const norm = Math.min(1, avg/90); // sensitivity
@@ -144,7 +160,21 @@ function startAudioLipSync(audio){
     tick();
   }catch(e){ console.warn('audio analyser failed',e); }
 }
+// vowel mouth: aligned chars drive shapes; analyser yields whenever timing exists
+let vowelClock=false;
+const mouthShape=(ch)=>{
+  const c=String(ch||"").toLowerCase();
+  if("ae".includes(c)) return [70,30];
+  if("ou".includes(c)) return [46,30];
+  if("iy".includes(c)) return [60,14];
+  if("mbp".includes(c)) return [48,8];
+  if("fv".includes(c)) return [54,12];
+  if("sz".includes(c)) return [52,10];
+  if("tdnlrkgcjxqh".includes(c)) return [58,16];
+  return [56,14];
+};
 function stopTalking(){
+  vowelClock=false;
   talking = false;
   clearTimeout(talkTimer);
   if(rafId) cancelAnimationFrame(rafId);
@@ -205,13 +235,14 @@ const b64ToBytes=(b)=>{ const s=atob(b); const u=new Uint8Array(s.length); for(l
 
 async function playElFlow(handle, item, ui){
   const slots=(item.tagSlots||[]).map(s=>({...s, fired:false}));
-  const words=[]; let cur=null;
+  const words=[]; const cseq=[]; let cur=null; vowelClock=false;
   const ingest=(chars, starts, ends)=>{
     for(let k=0;k<chars.length;k++){
       const ch=chars[k];
       if(ch===" "||ch==="\n"||ch==="\t"){ if(cur){ words.push(cur); cur=null; } continue; }
       if(!cur) cur={t:"", start:starts[k], end:ends[k]};
       cur.end=ends[k]; cur.t+=ch;
+      cseq.push({ch, start:starts[k], end:ends[k]}); vowelClock=true;
     }
   };
   const ms=new MediaSource();
@@ -220,7 +251,7 @@ async function playElFlow(handle, item, ui){
   audioEl=audio;
   if(rafId) cancelAnimationFrame(rafId);
   return await new Promise((resolve,reject)=>{
-    let ended=false, finished=false, started=false, shown=0, sb=null;
+    let ended=false, finished=false, started=false, shown=0, sb=null, mi=0;
     const finish=(ok)=>{
       if(finished) return; finished=true;
       ui.clearReveal();
@@ -250,10 +281,16 @@ async function playElFlow(handle, item, ui){
       while(n<words.length && words[n].start!==undefined && words[n].start<=t) n++;
       if(n>shown){ shown=n; ui.renderShown(words.slice(0,n).map(w=>w.t).join(" ")); }
     };
+    const mouthDue=(t)=>{
+      while(mi<cseq.length && cseq[mi].end!==undefined && cseq[mi].end<t) mi++;
+      const c=cseq[mi];
+      const [w,h]=(!c||c.start===undefined||t<c.start)?mouthShape(" "):mouthShape(c.ch);
+      gsap.to(mouth,{width:w,height:h,duration:.05,overwrite:true});
+    };
     const tick=()=>{
       if(ended||finished) return;
       const t=audio.currentTime||0;
-      renderDue(t); fireDue(t);
+      renderDue(t); fireDue(t); mouthDue(t);
       ui.armReveal(setTimeout(tick, 30));
     };
     const appendChunk=(c)=>new Promise((res,rej)=>{
