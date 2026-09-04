@@ -92,6 +92,7 @@ export class Character {
 
   // ---------- emotions ----------
   setEmotion(e) {
+    if (e === 'deadpan') e = 'unimpressed';
     (this.emotions[e] || this.emotions.neutral)(this);
     this.blinkDelay = this.blinkMood[e] || 2600;
     gsap.to(this.jaw, { y: this.jawPose[e] || 0, duration: .3, ease: "power2.out" });
@@ -114,7 +115,8 @@ export class Character {
   // ---------- gestures: name[:intensity[:speed]] ----------
   gesturePlay(payload) {
     const parts = String(payload || "").split(":");
-    const name = parts[0];
+    let name = parts[0];
+    if (name === "thumbup") name = "thumbsup"; // model's favorite typo
     const k = Math.max(.4, Math.min(2.5, parseFloat(parts[1]) || 1));
     const tm = parts[2] === "fast" ? .55 : parts[2] === "slow" ? 1.7 : 1;
     const D = (d) => d * tm, A = (deg) => deg * k;
@@ -365,4 +367,5 @@ Character.EMOTIONS = {
   scared: (ch) => { gsap.to(ch.browL, { y: -12, rotation: 0, duration: .2 }); gsap.to(ch.browR, { y: -12, rotation: 0, duration: .2 }); gsap.to([ch.eyeL, ch.eyeR], { scale: 1.15, scaleY: 1.15, duration: .2 }); gsap.to(ch.mouth, { width: 36, height: 30, borderRadius: 50, duration: .2 }); gsap.to(ch.cheeks, { opacity: .2, duration: .3 }); gsap.to(ch.head, { x: -2, duration: .06, yoyo: true, repeat: 5 }); setTimeout(() => gsap.to([ch.eyeL, ch.eyeR], { scale: 1, scaleY: 1, duration: .3 }), 600); },
   proud: (ch) => { gsap.to(ch.browL, { y: -6, rotation: -6, duration: .3 }); gsap.to(ch.browR, { y: -6, rotation: 6, duration: .3 }); gsap.to(ch.mouth, { width: 66, height: 18, borderRadius: 12, duration: .3 }); gsap.to(ch.cheeks, { opacity: .6, duration: .3 }); gsap.to(ch.head, { rotation: -1, y: -3, duration: .3 }); gsap.to([ch.eyeL, ch.eyeR], { scaleY: 1, scaleX: 1, duration: .25 }); },
   bored: (ch) => { gsap.to(ch.browL, { y: 0, rotation: 0, duration: .3 }); gsap.to(ch.browR, { y: 0, rotation: 0, duration: .3 }); gsap.to([ch.eyeL, ch.eyeR], { scaleY: .7, duration: .3 }); gsap.to(ch.mouth, { width: 44, height: 10, borderRadius: 8, duration: .3 }); gsap.to(ch.head, { rotation: 4, y: 2, duration: .3 }); gsap.to(ch.cheeks, { opacity: .25, duration: .3 }); },
+  unimpressed: (ch) => { gsap.to(ch.browL, { y: -4, rotation: -4, duration: .3 }); gsap.to(ch.browR, { y: 2, rotation: 0, duration: .3 }); gsap.to([ch.eyeL, ch.eyeR], { scaleY: .85, duration: .3 }); gsap.to(ch.mouth, { width: 52, height: 10, borderRadius: 8, duration: .3 }); gsap.to(ch.head, { rotation: 3, duration: .3 }); gsap.to(ch.cheeks, { opacity: .3, duration: .3 }); },
 };
