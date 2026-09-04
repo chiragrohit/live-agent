@@ -413,8 +413,8 @@ async function send(){
 
   let queue=[], processing=false, streamDone=false, sentenceBuf="", pendingEmotion=null, pendingGesture=null, pendingSlots=[], displayed="", started=false;
   const SENT_RE = /^[^.!?]*[.!?]+/;
-  const speaker = ()=> voiceSel?.value || 'sunny';
-  const spk = speaker(); // lock voice for the whole reply so prefetched audio matches
+  const sarvamSpeaker = ()=>{ const v=voiceSel?.value || 'sunny'; return v==="__el__" ? "sunny" : v; };
+  const spk = sarvamSpeaker(); // lock voice for the whole reply so prefetched audio matches
   let revealTimer=null;
   const clearReveal=()=>{ if(revealTimer){ clearTimeout(revealTimer); revealTimer=null; } };
   const armReveal=(id)=>{ revealTimer=id; };

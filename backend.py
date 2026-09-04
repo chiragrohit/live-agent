@@ -41,6 +41,14 @@ agent = Agent(
 )
 
 app = FastAPI(title="Live Agent - South Park Character")
+
+@app.middleware("http")
+async def no_store_frontend(request, call_next):
+    # never let browsers cache the player: stale app.js = stale voice path
+    resp = await call_next(request)
+    if request.url.path in ("/", "/index.html", "/app.js", "/style.css"):
+        resp.headers["Cache-Control"] = "no-store"
+    return resp
 # ponytail: same-origin frontend, no credentials needed — "*" + credentials=True is rejected by browsers
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=False, allow_methods=["*"], allow_headers=["*"])
 
