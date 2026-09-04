@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately).
 
-**Status:** ready-for-agent
+**Status:** done (shipped, verified live: `tag:face gaze=left` round-trips LLM → SSE → rig)
 
 - [ ] LLM can emit a non-emotion/non-gesture tag and it arrives as a timed player event on the correct spoken word
 - [ ] Existing emotion and gesture tags behave exactly as before (same faces, same moves, same timing)

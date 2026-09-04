@@ -34,10 +34,10 @@ blink();
 const emotions = {
   neutral: ()=>{ gsap.to(browL,{y:-2,rotation:-4,duration:.35}); gsap.to(browR,{y:-2,rotation:4,duration:.35}); gsap.to(mouth,{width:48,height:18,borderRadius:12,duration:.3}); gsap.to('.cheek',{opacity:.35,duration:.3}); gsap.to(head,{rotation:0,y:0,duration:.3}); gsap.to([eyeL,eyeR],{scaleY:1,scaleX:1,duration:.25}); gsap.to([pupilL,pupilR],{y:0,duration:.2}); },
   happy: ()=>{ gsap.to(browL,{y:-7,rotation:-10,duration:.3}); gsap.to(browR,{y:-7,rotation:10,duration:.3}); gsap.to(mouth,{width:68,height:26,borderRadius:14,duration:.3}); gsap.to('.cheek',{opacity:.9,duration:.3}); gsap.to(head,{rotation:1,y:-2,duration:.3}); gsap.to([eyeL,eyeR],{scaleY:0.92,scaleX:1.04,duration:.25}); },
-  excited: ()=>{ gsap.to(browL,{y:-10,rotation:-14,duration:.25}); gsap.to(browR,{y:-10,rotation:14,duration:.25}); gsap.to(mouth,{width:78,height:34,borderRadius:16,duration:.25}); gsap.to('.cheek',{opacity:1,duration:.3}); gsap.to(char,{scale:1.03,y:-6,duration:.2,yoyo:true,repeat:1}); gsap.to([eyeL,eyeR],{scaleY:0.95,duration:.2}); },
+  excited: ()=>{ gsap.to(browL,{y:-10,rotation:-14,duration:.25}); gsap.to(browR,{y:-10,rotation:14,duration:.25}); gsap.to(mouth,{width:78,height:34,borderRadius:16,duration:.25}); gsap.to('.cheek',{opacity:1,duration:.3}); windUp(.12); setTimeout(()=>popUp(8),130); gsap.to([eyeL,eyeR],{scaleY:0.95,duration:.2}); },
   sad: ()=>{ gsap.to(browL,{y:5,rotation:16,duration:.3}); gsap.to(browR,{y:5,rotation:-16,duration:.3}); gsap.to(mouth,{width:44,height:14,borderRadius:8,duration:.3}); gsap.to('.cheek',{opacity:.15,duration:.3}); gsap.to(head,{rotation:-2,y:2,duration:.3}); gsap.to([eyeL,eyeR],{scaleY:0.96,duration:.3}); },
   angry: ()=>{ gsap.to(browL,{y:3,rotation:-20,duration:.2}); gsap.to(browR,{y:3,rotation:20,duration:.2}); gsap.to(mouth,{width:54,height:20,borderRadius:4,duration:.25}); gsap.to('.cheek',{opacity:.65,duration:.3}); gsap.to(head,{x:-2, duration:.05, yoyo:true, repeat:6}); gsap.to([eyeL,eyeR],{scaleY:0.9,scaleX:1.08,duration:.2}); },
-  surprised: ()=>{ gsap.to(browL,{y:-13,rotation:0,duration:.2}); gsap.to(browR,{y:-13,rotation:0,duration:.2}); gsap.to(mouth,{width:40,height:42,borderRadius:50,duration:.2}); gsap.to([eyeL,eyeR],{scale:1.12,scaleY:1.12,duration:.2}); setTimeout(()=>gsap.to([eyeL,eyeR],{scale:1,scaleY:1,duration:.3}),450); },
+  surprised: ()=>{ gsap.to(browL,{y:-13,rotation:0,duration:.2}); gsap.to(browR,{y:-13,rotation:0,duration:.2}); gsap.to(mouth,{width:40,height:42,borderRadius:50,duration:.2}); headBoing(); gsap.to([eyeL,eyeR],{scale:1.12,scaleY:1.12,duration:.2}); setTimeout(()=>gsap.to([eyeL,eyeR],{scale:1,scaleY:1,duration:.3}),450); },
   confused: ()=>{ gsap.to(browL,{y:-7,rotation:-8,duration:.3}); gsap.to(browR,{y:3,rotation:8,duration:.3}); gsap.to(mouth,{width:46,height:16,borderRadius:8,duration:.3}); gsap.to([eyeL,eyeR],{scale:1,duration:.3}); },
   smug: ()=>{ gsap.to(browL,{y:-3,rotation:-6,duration:.3}); gsap.to(browR,{y:1,rotation:2,duration:.3}); gsap.to(mouth,{width:62,height:14,borderRadius:12,duration:.3}); gsap.to('.cheek',{opacity:.55,duration:.3}); gsap.to(head,{rotation:2,duration:.3}); },
   shy: ()=>{ gsap.to(browL,{y:-1,rotation:-2,duration:.3}); gsap.to(browR,{y:-1,rotation:2,duration:.3}); gsap.to(mouth,{width:36,height:16,borderRadius:10,duration:.3}); gsap.to('.cheek',{opacity:1,duration:.3}); gsap.to(head,{rotation:-3,y:1,duration:.3}); gsap.to([eyeL,eyeR],{scaleY:0.94,duration:.3}); },
@@ -47,6 +47,12 @@ function setEmotion(e){
   (emotions[e]||emotions.neutral)();
   statusEl.textContent = e + " • " + (talking ? "talking" : "idle");
 }
+
+// -- cartoon physics: anticipation, squash/stretch, overshoot. Global pass — reshapes
+// tweens only, never delays the audio clock. Short bursts so the idle bob reasserts after.
+function windUp(dur=0.14){ gsap.to(char,{scaleY:.9,scaleX:1.07,duration:dur,ease:"power2.in"}); return dur; }
+function popUp(h=8){ gsap.timeline().to(char,{scaleY:1.08,scaleX:.94,y:-h,duration:.16,ease:"power2.out"}).to(char,{scaleY:1,scaleX:1,y:0,duration:.4,ease:"elastic.out(1,0.45)"}); }
+function headBoing(){ gsap.timeline().to(head,{scaleY:.88,scaleX:1.1,duration:.1,ease:"power2.in"}).to(head,{scaleY:1.06,scaleX:.95,duration:.14}).to(head,{scaleY:1,scaleX:1,duration:.35,ease:"elastic.out(1,0.4)"}); }
 
 // -- gestures --
 function doGesture(g){
@@ -61,18 +67,22 @@ function doGesture(g){
     gsap.to(armL,{rotation:-18, y:0, duration:.4, delay:.6, ease:"back.out(1.2)"});
     gsap.to(armR,{rotation:18, y:0, duration:.4, delay:.6, ease:"back.out(1.2)"});
   } else if(g==="nod"){
-    gsap.to(head,{y:8, duration:.12, yoyo:true, repeat:3});
+    gsap.to(head,{y:10, duration:.12, yoyo:true, repeat:3});
+    setTimeout(()=>gsap.to(head,{y:0,duration:.3,ease:"elastic.out(1,0.5)"}),550);
   } else if(g==="point"){
     gsap.to(armR,{rotation:-85, duration:.3});
     setTimeout(()=>gsap.to(armR,{rotation:18, duration:.4}), 900);
   } else if(g==="dance"){
-    gsap.to(char,{rotation:-4, duration:.18, yoyo:true, repeat:5, ease:"sine.inOut"});
-    gsap.to([armL,armR],{rotation:-90, duration:.18, yoyo:true, repeat:5});
-    gsap.to(armL,{rotation:-18, duration:.3, delay:1.1});
-    gsap.to(armR,{rotation:18, duration:.3, delay:1.1});
+    windUp(.15);
+    gsap.to(char,{rotation:-4, duration:.18, yoyo:true, repeat:5, ease:"sine.inOut", delay:.15});
+    gsap.to([armL,armR],{rotation:-90, duration:.18, yoyo:true, repeat:5, delay:.15});
+    gsap.to(armL,{rotation:-18, duration:.3, delay:1.25});
+    gsap.to(armR,{rotation:18, duration:.3, delay:1.25});
+    setTimeout(()=>popUp(6),1250);
   } else if(g==="facepalm"){
     gsap.to(armR,{rotation:-140, duration:.35, ease:"power2.out"});
     setTimeout(()=>gsap.to(armR,{rotation:18, duration:.4}), 900);
+    setTimeout(()=>gsap.to(head,{y:4,duration:.14,yoyo:true,repeat:1}), 950); // follow-through
   }
 }
 
