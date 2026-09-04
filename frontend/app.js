@@ -9,6 +9,7 @@ const armL = $('#armL'), armR = $('#armR');
 let talking = false;
 let talkTimer = null;
 let blinkTimer = null;
+let blinkDelay = 2600, gazeHoldUntil = 0;
 
 // -- idle ---
 gsap.to(char, { y: -4, duration: 0.9, yoyo: true, repeat: -1, ease: "sine.inOut" });
@@ -219,7 +220,6 @@ function fireSlot(s){
 }
 
 // -- living eyes: cursor tracking when idle, mood-driven blink rate --
-let gazeHoldUntil=0, blinkDelay=2600;
 const blinkMood={surprised:900, excited:1600, sleepy:4200, sad:3200, scared:850, bored:3600};
 window.addEventListener('mousemove',(e)=>{
   if(talking || Date.now()<gazeHoldUntil) return;
