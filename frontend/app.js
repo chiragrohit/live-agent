@@ -3,8 +3,14 @@ const log = $('#log'), input = $('#input'), sendBtn = $('#send'), statusEl = $('
 import { Character } from './character.js';
 // Max: the base character, instantiated with defaults. A variant is one
 // constructor call away — see character.js header for the params.
-const max = new Character($('#char'));
-max.onStatus = (text, m) => { statusEl.textContent = text; statusEl.classList.toggle('talking', !!m?.talking); };
+const VOICE = { Max: "TX3LPaxmHKxFdv7VOQHJ", Mia: "cgSgspJ2msm6clMCkdW9" }; // Liam, Jessica
+const cast = {
+  Max: new Character($('#char')),
+  Mia: new Character($('#charMia'), { palette: { shirt: '#7c5cd6', hair: '#241d18' }, showName: 'THE MAX & MIA SHOW' }),
+};
+const max = cast.Max, mia = cast.Mia;
+const wireStatus = (name, ch) => { ch.onStatus = (text, m) => { statusEl.textContent = name + ': ' + text; statusEl.classList.toggle('talking', !!m?.talking); }; };
+wireStatus('Max', max); wireStatus('Mia', mia);
 
 // idle life, blinking, eye dart, cursor tracking: owned by Character
 
@@ -35,12 +41,12 @@ function addBubble(text, who){
 let sessionId = localStorage.getItem('sessionId') || (Math.random().toString(36).slice(2) + Date.now().toString(36));
 localStorage.setItem('sessionId', sessionId);
 const modelSel=$('#modelSel');
-modelSel.value=localStorage.getItem('brain')||'zen';
+modelSel.value=localStorage.getItem('brain')||'nemotron';
 modelSel.addEventListener('change',()=>localStorage.setItem('brain',modelSel.value));
 
 // voice mood lives on the character (per-variant delivery); explicit voice: tags override
-function voiceSettingsFor(item){
-  const out={...(max.voiceMood[item.emotion]||{})};
+function voiceSettingsFor(item, C){
+  const out={...((C||max).voiceMood[item.emotion]||{})};
   for(const s of (item.tagSlots||[])){
     if(s.type==="tag"&&s.channel==="voice"){
       for(const part of String(s.value).split(",")){ const kv=part.split("="); const f=parseFloat(kv[1]);
@@ -49,11 +55,11 @@ function voiceSettingsFor(item){
   }
   return Object.keys(out).length?out:null;
 }
-function startElFlow(text, settings){
+function startElFlow(text, settings, voice){
   const h={events:[], idx:0, done:false, error:null};
   (async()=>{
     try{
-      const r=await fetch('/tts/el-flow',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(settings?{text, voice_settings:settings}:{text})});
+      const r=await fetch('/tts/el-flow',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text, voice_settings:settings||undefined, voice:voice||undefined})});
       if(!r.ok || !r.body) throw new Error('el-flow '+r.status);
       const reader=r.body.getReader(); const dec=new TextDecoder(); let buf=""; let got=false;
       const push=(line)=>{
@@ -85,23 +91,23 @@ const elNext=(h)=>new Promise((res,rej)=>{
 });
 const b64ToBytes=(b)=>{ const s=atob(b); const u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 
-async function playElFlow(handle, item, ui){
+async function playElFlow(handle, item, ui, C){
   const slots=(item.tagSlots||[]).map(s=>({...s, fired:false}));
-  const words=[]; const cseq=[]; let cur=null; max.vowelClock=false;
+  const words=[]; const cseq=[]; let cur=null; C.vowelClock=false;
   const ingest=(chars, starts, ends)=>{
     for(let k=0;k<chars.length;k++){
       const ch=chars[k];
       if(ch===" "||ch==="\n"||ch==="\t"){ if(cur){ words.push(cur); cur=null; } continue; }
       if(!cur) cur={t:"", start:starts[k], end:ends[k]};
       cur.end=ends[k]; cur.t+=ch;
-      cseq.push({ch, start:starts[k], end:ends[k]}); max.vowelClock=true;
+      cseq.push({ch, start:starts[k], end:ends[k]}); C.vowelClock=true;
     }
   };
   const ms=new MediaSource();
   const audio=new Audio();
   audio.src=URL.createObjectURL(ms);
-  max.audioEl=audio;
-  if(max.rafId) cancelAnimationFrame(max.rafId);
+  C.audioEl=audio;
+  if(C.rafId) cancelAnimationFrame(C.rafId);
   return await new Promise((resolve,reject)=>{
     let ended=false, finished=false, started=false, shown=0, sb=null, mi=0;
     const finish=(ok)=>{
@@ -109,13 +115,13 @@ async function playElFlow(handle, item, ui){
       ui.clearReveal();
       try{ audio.pause(); }catch{}
       try{ URL.revokeObjectURL(audio.src); }catch{}
-      if(max.audioEl===audio) max.audioEl=null;
-      if(max.rafId) cancelAnimationFrame(max.rafId);
+      if(C.audioEl===audio) C.audioEl=null;
+      if(C.rafId) cancelAnimationFrame(C.rafId);
       if(!ok){ reject(new Error('el playback failed')); return; }
-      for(const s of slots){ if(!s.fired) max.fireSlot(s); }
+      for(const s of slots){ if(!s.fired) C.fireSlot(s); }
       if(cur){ words.push(cur); cur=null; }
       ui.commitItem(item.text);
-      if(max.talking) max.flapTick();
+      if(C.talking) C.flapTick();
       resolve();
     };
     audio.onended=()=>{ ended=true; finish(true); };
@@ -125,7 +131,7 @@ async function playElFlow(handle, item, ui){
         if(s.fired || !words.length) continue;
         const w = s.w===Infinity? words.length-1 : Math.min(s.w, words.length-1);
         if(w<0 || words[w].start===undefined || words[w].start>t) continue;
-        max.fireSlot(s);
+        C.fireSlot(s);
       }
     };
     const renderDue=(t)=>{
@@ -136,8 +142,8 @@ async function playElFlow(handle, item, ui){
     const mouthDue=(t)=>{
       while(mi<cseq.length && cseq[mi].end!==undefined && cseq[mi].end<t) mi++;
       const c=cseq[mi];
-      const [w,h]=(!c||c.start===undefined||t<c.start)?max.mouthShape(" "):max.mouthShape(c.ch);
-      max.setMouth(w,h,.05);
+      const [w,h]=(!c||c.start===undefined||t<c.start)?C.mouthShape(" "):C.mouthShape(c.ch);
+      C.setMouth(w,h,.05);
     };
     const tick=()=>{
       if(ended||finished) return;
@@ -166,9 +172,9 @@ async function playElFlow(handle, item, ui){
             try{ await audio.play(); }
             catch(e){ finish(false); return; }
             audio.muted = !(ttsToggle?.checked ?? true); // voice-off keeps clock, reveal, acting
-            if(!max.talking) max.startTalking();
+            if(!C.talking) C.startTalking();
             statusEl.textContent='speaking...'; statusEl.classList.add('talking');
-            max.startAudioLipSync(audio);
+            C.startAudioLipSync(audio);
             tick();
           }
         }
@@ -192,15 +198,16 @@ let busy = false;
 async function send(){
   const msg = input.value.trim();
   if(!msg || busy) return;
+  const isBanter=banterMode; banterMode=false;
   busy = true; sendBtn.disabled = true; input.value="";
-  addBubble(msg, "user");
+  addBubble(isBanter?("\uD83C\uDFB2 "+msg):msg, "user");
   const botBubble = addBubble("…", "bot");
   botBubble.classList.add('stream');
   statusEl.textContent = "thinking";
   statusEl.classList.add('thinking');
-  max.think();
+  max.think(); mia.think();
 
-  let queue=[], processing=false, streamDone=false, sentenceBuf="", pendingEmotion=null, pendingGesture=null, pendingSlots=[], displayed="", started=false;
+  let queue=[], processing=false, streamDone=false, sentenceBuf="", bufSpeaker="Max", pendingEmotion=null, pendingGesture=null, pendingSlots=[], pendingSp=null, displayed="", started=false;
   const SENT_RE = /^[^.!?]*[.!?]+/;
   let revealTimer=null;
   const clearReveal=()=>{ if(revealTimer){ clearTimeout(revealTimer); revealTimer=null; } };
@@ -209,35 +216,37 @@ async function send(){
   const commitItem=(text)=>{ displayed=displayed? displayed+" "+text : text; botBubble.textContent=displayed; log.scrollTop=log.scrollHeight; };
   const ui={renderShown, commitItem, clearReveal, armReveal};
   const speak=async(item)=>{
+    const C=cast[item.speaker]||max;
     const words=item.text.split(/\s+/).filter(Boolean);
-    const fireTags=()=>{ if(item.emotion) max.setEmotion(item.emotion); if(item.gesture) setTimeout(()=>max.gesturePlay(item.gesture), 180); };
+    const fireTags=()=>{ if(item.emotion) C.setEmotion(item.emotion); if(item.gesture) setTimeout(()=>C.gesturePlay(item.gesture), 180); };
     const fakeSpeak=(totalMs)=>new Promise((res)=>{
-      fireTags(); for(const s of (item.tagSlots||[])) if(s.type==="tag") max.fireSlot({...s});
-      if(!max.talking) max.startTalking();
+      fireTags(); for(const s of (item.tagSlots||[])) if(s.type==="tag") C.fireSlot({...s});
+      if(!C.talking) C.startTalking();
       let i=0; renderShown(words[0]||"");
       const step=()=>{ i++; if(i>=words.length){ clearReveal(); commitItem(item.text); res(); return; } renderShown(words.slice(0,i+1).join(" ")); revealTimer=setTimeout(step, totalMs/Math.max(1,words.length)); };
       revealTimer=setTimeout(step, totalMs/Math.max(1,words.length));
     });
     // elevenlabs only: timestamp-driven playback, estimated silent fallback
-    const elHandle=item.elFlow ?? startElFlow(item.text, voiceSettingsFor(item));
-    try{ await playElFlow(elHandle, item, ui); return; }
+    const elHandle=item.elFlow ?? startElFlow(item.text, voiceSettingsFor(item, C), VOICE[item.speaker]);
+    try{ await playElFlow(elHandle, item, ui, C); return; }
     catch(e){ console.warn('el flow failed, silent fallback', e.message); }
     await fakeSpeak(Math.min(5000, Math.max(900, item.text.length*28)));
   };
   const enqueue=(text)=>{
     if(!text.trim()) return;
-    queue.push({text: text.trim(), emotion: pendingEmotion, gesture: pendingGesture, tagSlots: pendingSlots});
-    pendingEmotion=null; pendingGesture=null; pendingSlots=[];
+    queue.push({text: text.trim(), speaker: pendingSp ?? bufSpeaker, emotion: pendingEmotion, gesture: pendingGesture, tagSlots: pendingSlots});
+    pendingEmotion=null; pendingGesture=null; pendingSlots=[]; pendingSp=null;
     if(!processing) drain();
   };
   const drain=async()=>{
     if(processing) return; processing=true;
     while(queue.length>0){
       const item=queue.shift();
-      if(!started){ started=true; statusEl.classList.remove('thinking'); botBubble.textContent=""; displayed=""; max.setEmotion('neutral'); }
+      if(!started){ started=true; statusEl.classList.remove('thinking'); botBubble.textContent=""; displayed=""; max.setEmotion('neutral'); mia.setEmotion('neutral'); }
       // one-ahead prefetch: start next sentence el-flow while current speaks
-      if(queue.length>0){ const nx=queue[0]; if(!nx.elFlow) nx.elFlow=startElFlow(nx.text, voiceSettingsFor(nx)); }
-      if(!max.talking) max.startTalking();
+      if(queue.length>0){ const nx=queue[0]; if(!nx.elFlow) nx.elFlow=startElFlow(nx.text, voiceSettingsFor(nx, cast[nx.speaker]||max), VOICE[nx.speaker]); }
+      const C=cast[item.speaker]||max;
+      if(!C.talking) C.startTalking();
       await speak(item);
       if(queue.length>0) await new Promise(r=> setTimeout(r, 120));
     }
@@ -255,14 +264,14 @@ async function send(){
     if(finished) return; finished=true;
     clearReveal();
     botBubble.classList.remove('stream');
-    max.stopTalking();
+    max.stopTalking(); mia.stopTalking();
     statusEl.textContent='idle \u2022 blinking';
     statusEl.classList.remove('talking','thinking');
-    setTimeout(()=>max.setEmotion('neutral'), 900);
+    setTimeout(()=>{ max.setEmotion('neutral'); mia.setEmotion('neutral'); }, 900);
   };
 
   try{
-    const res = await fetch('/chat/stream', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ message: msg, session_id: sessionId, model: modelSel.value })});
+    const res = await fetch('/chat/stream', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ message: msg, session_id: sessionId, model: modelSel.value, banter: isBanter })});
     if(!res.ok || !res.body) throw new Error("no stream");
     const reader=res.body.getReader(); const decoder=new TextDecoder();
     let buf="";
@@ -275,6 +284,9 @@ async function send(){
         if(!part.startsWith("data: ")) continue;
         let j; try{ j=JSON.parse(part.slice(6)); }catch{ continue; }
         if(j.type==="token"){
+          const sp=(j.speaker==="Mia")?"Mia":"Max";
+          if(sentenceBuf && sp!==bufSpeaker){ enqueue(sentenceBuf); sentenceBuf=""; }
+          if(!sentenceBuf) bufSpeaker=sp;
           sentenceBuf+=j.content;
           // extract complete sentences
           let m;
@@ -291,6 +303,7 @@ async function send(){
         } else if(j.type==="emotion" || j.type==="gesture" || (j.type||"").startsWith("tag:")){
           // word index at arrival => exact firing position on the el timestamp clock
           const w=sentenceBuf.split(/\s+/).filter(Boolean).length;
+          pendingSp=(j.speaker==="Mia")?"Mia":"Max";
           if((j.type||"").startsWith("tag:")){
             pendingSlots.push({w, type:"tag", channel:j.type.slice(4), value:j.value});
           } else {
@@ -316,9 +329,10 @@ async function send(){
         for(const s of pendingSlots) tail.tagSlots.push({...s, w:Infinity});
       }
       else {
-        if(pendingEmotion) max.setEmotion(pendingEmotion);
-        if(pendingGesture){ const g=pendingGesture; setTimeout(()=>max.gesturePlay(g), 150); }
-        for(const s of pendingSlots) max.fireSlot({...s});
+        const C=cast[bufSpeaker]||max;
+        if(pendingEmotion) C.setEmotion(pendingEmotion);
+        if(pendingGesture){ const g=pendingGesture; setTimeout(()=>C.gesturePlay(g), 150); }
+        for(const s of pendingSlots) C.fireSlot({...s});
       }
       pendingEmotion=pendingGesture=null; pendingSlots=[];
     }
@@ -328,7 +342,7 @@ async function send(){
       finalize();
     } else if(!processing && queue.length===0){
       // drained already, finalize
-      if(!max.talking) finalize();
+      if(!max.talking && !mia.talking) finalize();
       // else finalize will be called after last audio
     }
     // wait until queue drains
@@ -336,17 +350,27 @@ async function send(){
   }catch(e){
     botBubble.textContent = "Failed to reach agent: " + e.message;
     botBubble.style.background="#ffdddd";
-    max.stopTalking();
+    max.stopTalking(); mia.stopTalking();
     statusEl.classList.remove('thinking');
   }finally{
     busy=false; sendBtn.disabled=false; input.focus();
     // final safety
-    setTimeout(()=>{ if(!processing && !max.talking) { statusEl.classList.remove('thinking'); } }, 1000);
+    setTimeout(()=>{ if(!processing && !max.talking && !mia.talking) { statusEl.classList.remove('thinking'); } }, 1000);
   }
 }
+
+const BANTERS=[
+  "Max brags about his new high score, Mia roasts him for it",
+  "Mia lost the TV remote, Max 'helps' her find it",
+  "Debate the best after-school snack",
+  "Plan a weekend adventure together",
+  "Mia teaches Max how to be cool. It backfires",
+];
+let banterMode=false;
+$('#banterBtn').onclick=()=>{ if(busy) return; banterMode=true; input.value=BANTERS[Math.floor(Math.random()*BANTERS.length)]; send(); };
 
 sendBtn.onclick = send;
 input.addEventListener('keydown', e=>{ if(e.key==="Enter") send(); });
 
 // demo greeting
-setTimeout(()=>addBubble("Hey! I'm Max — talk to me and watch me move. Try 'be super excited and wave!'","bot"), 400);
+setTimeout(()=>addBubble("Hey! We're Max & Mia — talk to us, or hit \uD83C\uDFB2 for improv!","bot"), 400);
