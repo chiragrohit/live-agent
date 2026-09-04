@@ -90,8 +90,8 @@ h1 span{background:#1a1a1a;color:#fff;padding:3px 9px;border-radius:999px;margin
 .brow{width:40px;height:10px;background:#1a1a1a;border-radius:999px;transform-origin:center}
 .mouth{position:absolute;top:138px;left:50%;transform:translateX(-50%);width:44px;height:12px;background:#1a1a1a;border-radius:12px;display:flex;align-items:center;justify-content:center;overflow:hidden;border:3px solid #1a1a1a}
 .mouth-inner{width:100%;height:100%;background:#4a0000;position:relative;display:flex;align-items:center;justify-content:center}
-.teeth{position:absolute;top:0;left:50%;transform:translateX(-50%);width:46px;height:10px;background:#fff;border-radius:0 0 8px 8px;border:2px solid #1a1a1a;border-top:none}
-.tongue{position:absolute;bottom:2px;width:28px;height:14px;background:#ff5a5a;border-radius:10px 10px 0 0}
+.teeth{position:absolute;top:0;left:50%;transform:translateX(-50%);width:46px;height:10px;background:#fff;border-radius:0 0 8px 8px;border:2px solid #1a1a1a;border-top:none;opacity:0}
+.tongue{position:absolute;bottom:2px;width:28px;height:14px;background:#ff5a5a;border-radius:10px 10px 0 0;opacity:0}
 
 .status{font-size:11px;font-weight:800;letter-spacing:.7px;text-transform:uppercase;color:#333;background:#fff;border:2px solid #1a1a1a;border-radius:999px;padding:7px 14px;box-shadow:4px 4px 0 #1a1a1a}
 .status.talking{background:#b2ff59}
