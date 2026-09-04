@@ -62,11 +62,14 @@ h1 span{background:#1a1a1a;color:#fff;padding:3px 9px;border-radius:999px;margin
 .hand{position:absolute;bottom:-10px;left:50%;transform:translateX(-50%);width:32px;height:32px;background:var(--skin);border:3px solid #1a1a1a;border-radius:50%}
 /* Max chibi: giant head, tiny body, dot nose, chin melted into silhouette */
 .head{
-  position:absolute;left:50%;top:0;transform:translateX(-50%);
+  position:absolute;left:50%;top:16px;transform:translateX(-50%);
   width:206px;height:196px;background:var(--skin);border:4px solid #1a1a1a;border-radius:50%;
   overflow:visible;display:flex;flex-direction:column;align-items:center;
 }
-.neck{position:absolute;left:50%;top:190px;transform:translateX(-50%);width:26px;height:28px;background:var(--skin);border:3px solid #1a1a1a;border-top:none;border-bottom:none}
+.leg{position:absolute;bottom:12px;width:24px;height:30px;background:#3b4a6b;border:3px solid #1a1a1a;border-radius:8px 8px 6px 6px}
+.leg.left{left:calc(50% - 28px)}
+.leg.right{left:calc(50% + 4px)}
+.leg::after{content:"";position:absolute;bottom:-11px;left:50%;transform:translateX(-50%);width:30px;height:14px;background:#1a1a1a;border-radius:8px}
 /* Max: full school-kid hair, small nose, light chin */
 .haircap{position:absolute;top:-20px;left:50%;transform:translateX(-50%);width:200px;height:80px;background:var(--hair);border:4px solid #1a1a1a;border-radius:60px 60px 22px 22px}
 .haircap::before{content:"";position:absolute;bottom:-12px;left:28px;width:0;height:0;border-left:14px solid transparent;border-right:14px solid transparent;border-top:20px solid var(--hair)}
