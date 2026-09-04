@@ -263,6 +263,140 @@ async function fetchAudio(text, speaker){
   }catch(e2){ console.warn('REST TTS fallback failed', e2.message); return null; }
 }
 
+// --- elevenlabs flow: NDJSON {audio b64, char timings}, reveal + tags driven by REAL timestamps ---
+function startElFlow(text){
+  const h={events:[], idx:0, done:false, error:null};
+  (async()=>{
+    try{
+      const r=await fetch('/tts/el-flow',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text})});
+      if(!r.ok || !r.body) throw new Error('el-flow '+r.status);
+      const reader=r.body.getReader(); const dec=new TextDecoder(); let buf=""; let got=false;
+      const push=(line)=>{
+        let j; try{ j=JSON.parse(line); }catch{ return; }
+        h.events.push(j); if(j.a) got=true;
+      };
+      while(true){
+        const {value,done}=await reader.read();
+        if(done) break;
+        buf+=dec.decode(value,{stream:true});
+        const parts=buf.split("\n"); buf=parts.pop();
+        for(const p of parts){ if(p.trim()) push(p); }
+      }
+      if(buf.trim()) push(buf);
+      if(!got) throw new Error('empty el audio');
+      h.done=true;
+    }catch(e){ h.error=e; }
+  })();
+  return h;
+}
+const elNext=(h)=>new Promise((res,rej)=>{
+  const poll=()=>{
+    if(h.idx<h.events.length) return res(h.events[h.idx++]);
+    if(h.error) return rej(h.error);
+    if(h.done) return res(null);
+    setTimeout(poll, 25);
+  };
+  poll();
+});
+const b64ToBytes=(b)=>{ const s=atob(b); const u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
+
+async function playElFlow(handle, item, ui){
+  const slots=(item.tagSlots||[]).map(s=>({...s, fired:false}));
+  const words=[]; let cur=null;
+  const ingest=(chars, starts, ends)=>{
+    for(let k=0;k<chars.length;k++){
+      const ch=chars[k];
+      if(ch===" "||ch==="\n"||ch==="\t"){ if(cur){ words.push(cur); cur=null; } continue; }
+      if(!cur) cur={t:"", start:starts[k], end:ends[k]};
+      cur.end=ends[k]; cur.t+=ch;
+    }
+  };
+  const ms=new MediaSource();
+  const audio=new Audio();
+  audio.src=URL.createObjectURL(ms);
+  audioEl=audio;
+  if(rafId) cancelAnimationFrame(rafId);
+  return await new Promise((resolve,reject)=>{
+    let ended=false, finished=false, started=false, shown=0, sb=null;
+    const finish=(ok)=>{
+      if(finished) return; finished=true;
+      ui.clearReveal();
+      try{ audio.pause(); }catch{}
+      try{ URL.revokeObjectURL(audio.src); }catch{}
+      if(audioEl===audio) audioEl=null;
+      if(rafId) cancelAnimationFrame(rafId);
+      if(!ok){ reject(new Error('el playback failed')); return; }
+      for(const s of slots){ if(!s.fired){ s.fired=true; if(s.type==="emotion") setEmotion(s.value); else doGesture(s.value); } }
+      if(cur){ words.push(cur); cur=null; }
+      ui.commitItem(item.text);
+      if(talking) flapTick();
+      resolve();
+    };
+    audio.onended=()=>{ ended=true; finish(true); };
+    audio.onerror=()=>{ finish(started); };
+    const fireDue=(t)=>{
+      for(const s of slots){
+        if(s.fired || !words.length) continue;
+        const w = s.w===Infinity? words.length-1 : Math.min(s.w, words.length-1);
+        if(w<0 || words[w].start===undefined || words[w].start>t) continue;
+        s.fired=true;
+        if(s.type==="emotion") setEmotion(s.value);
+        else setTimeout(()=>doGesture(s.value), 120);
+      }
+    };
+    const renderDue=(t)=>{
+      let n=0;
+      while(n<words.length && words[n].start!==undefined && words[n].start<=t) n++;
+      if(n>shown){ shown=n; ui.renderShown(words.slice(0,n).map(w=>w.t).join(" ")); }
+    };
+    const tick=()=>{
+      if(ended||finished) return;
+      const t=audio.currentTime||0;
+      renderDue(t); fireDue(t);
+      ui.armReveal(setTimeout(tick, 30));
+    };
+    const appendChunk=(c)=>new Promise((res,rej)=>{
+      const done=()=>{ sb.removeEventListener('updateend', done); res(); };
+      try{
+        if(sb.updating){ sb.addEventListener('updateend', function w(){ sb.removeEventListener('updateend', w); try{ sb.appendBuffer(c); sb.addEventListener('updateend', done); }catch(e){ rej(e); } }); }
+        else { sb.appendBuffer(c); sb.addEventListener('updateend', done); }
+      }catch(e){ rej(e); }
+    });
+    const pump=async()=>{
+      try{
+        while(true){
+          if(finished) return;
+          const ev=await elNext(handle);
+          if(ev===null) break;
+          if(finished) return;
+          if(ev.a) await appendChunk(b64ToBytes(ev.a));
+          if(ev.c && ev.s && ev.e) ingest(ev.c, ev.s, ev.e);
+          if(!started){
+            started=true;
+            try{ await audio.play(); }
+            catch(e){ finish(false); return; }
+            if(!talking) startTalking();
+            statusEl.textContent='speaking...'; statusEl.classList.add('talking');
+            startAudioLipSync(audio);
+            tick();
+          }
+        }
+        if(cur){ words.push(cur); cur=null; }
+        try{ if(ms.readyState==="open") ms.endOfStream(); }catch{}
+        setTimeout(()=>{ if(!finished){ ended=true; finish(true); } }, Math.max(6000, ((isFinite(audio.duration)?audio.duration:0)*1000)+3000));
+      }catch(e){
+        if(!started){ reject(e); return; }
+        try{ if(ms.readyState==="open") ms.endOfStream(); }catch{}
+      }
+    };
+    try{
+      if(!window.MediaSource || !MediaSource.isTypeSupported('audio/mpeg')) throw new Error('MSE unsupported');
+    }catch(e){ reject(e); return; }
+    ms.addEventListener('sourceopen', ()=>{ try{ sb=ms.addSourceBuffer('audio/mpeg'); }catch(e){ reject(e); return; } pump(); }, {once:true});
+    setTimeout(()=>{ if(!sb && !finished) reject(new Error('MSE open timeout')); }, 8000);
+  });
+}
+
 let busy = false;
 async function send(){
   const msg = input.value.trim();
@@ -277,7 +411,7 @@ async function send(){
   setTimeout(()=>gsap.to([pupilL,pupilR], { x: -8, duration:.5 }), 500);
   setTimeout(()=>gsap.to([pupilL,pupilR], { x: 0, duration:.4 }), 1100);
 
-  let queue=[], processing=false, streamDone=false, sentenceBuf="", pendingEmotion=null, pendingGesture=null, displayed="", started=false;
+  let queue=[], processing=false, streamDone=false, sentenceBuf="", pendingEmotion=null, pendingGesture=null, pendingSlots=[], displayed="", started=false;
   const SENT_RE = /^[^.!?]*[.!?]+/;
   const speaker = ()=> voiceSel?.value || 'sunny';
   const spk = speaker(); // lock voice for the whole reply so prefetched audio matches
@@ -296,7 +430,10 @@ async function send(){
       const step=()=>{ i++; if(i>=words.length){ clearReveal(); commitItem(item.text); res(); return; } renderShown(words.slice(0,i+1).join(" ")); revealTimer=setTimeout(step, totalMs/Math.max(1,words.length)); };
       revealTimer=setTimeout(step, totalMs/Math.max(1,words.length));
     });
-    // realtime first: progressive WS playback (also serves prefetch); blob + fake fallbacks below
+    // realtime first: el timestamps (ground truth); sarvam flow, blob, fake fallbacks below
+    const elHandle=item.elFlow ?? startElFlow(item.text);
+    try{ await playElFlow(elHandle, item, ui); return; }
+    catch(e){ console.warn('el flow failed, sarvam flow fallback', e.message); }
     const handle=item.flow ?? startFlow(item.text, spk);
     try{ await playFlow(handle, item, ui); return; }
     catch(e){ console.warn('flow playback failed, blob fallback', e.message); }
@@ -326,8 +463,8 @@ async function send(){
   };
   const enqueue=(text)=>{
     if(!text.trim()) return;
-    queue.push({text: text.trim(), emotion: pendingEmotion, gesture: pendingGesture});
-    pendingEmotion=null; pendingGesture=null;
+    queue.push({text: text.trim(), emotion: pendingEmotion, gesture: pendingGesture, tagSlots: pendingSlots});
+    pendingEmotion=null; pendingGesture=null; pendingSlots=[];
     if(!processing) drain();
   };
   const drain=async()=>{
@@ -335,8 +472,8 @@ async function send(){
     while(queue.length>0){
       const item=queue.shift();
       if(!started){ started=true; statusEl.classList.remove('thinking'); botBubble.textContent=""; displayed=""; setEmotion('neutral'); }
-      // one-ahead prefetch: start next sentence flow while current speaks
-      if(queue.length>0){ const nx=queue[0]; if(!nx.flow) nx.flow=startFlow(nx.text, spk); }
+      // one-ahead prefetch: start next sentence el-flow while current speaks
+      if(queue.length>0){ const nx=queue[0]; if(!nx.elFlow) nx.elFlow=startElFlow(nx.text); }
       if(!talking) startTalking();
       await speak(item);
       if(queue.length>0) await new Promise(r=> setTimeout(r, 120));
@@ -388,8 +525,12 @@ async function send(){
             const cut=sentenceBuf.lastIndexOf(' ');
             if(cut>80){ enqueue(sentenceBuf.slice(0,cut)); sentenceBuf=sentenceBuf.slice(cut); }
           }
-        } else if(j.type==="emotion") pendingEmotion=j.value;
-        else if(j.type==="gesture") pendingGesture=j.value;
+        } else if(j.type==="emotion" || j.type==="gesture"){
+          // word index at arrival => exact firing position on the el timestamp clock
+          const w=sentenceBuf.split(/\s+/).filter(Boolean).length;
+          pendingSlots.push({w, type:j.type, value:j.value});
+          if(j.type==="emotion") pendingEmotion=j.value; else pendingGesture=j.value;
+        }
         else if(j.type==="error"){ if(!started){ botBubble.textContent=""; started=true; } displayed+=(displayed?" ":"")+"[error: "+j.content+"]"; botBubble.textContent=displayed; }
       }
     }
@@ -399,12 +540,20 @@ async function send(){
     if(sentenceBuf.trim()) enqueue(sentenceBuf.trim());
     sentenceBuf="";
     // trailing tags (arrived after the last text) previously died silently —
-    // merge into the final queued sentence, or fire live if audio is already playing
-    if(pendingEmotion || pendingGesture){
+    // merge into the final queued sentence (w=Infinity fires at its last word), or live if playing
+    if(pendingEmotion || pendingGesture || pendingSlots.length){
       const tail=queue[queue.length-1];
-      if(tail){ if(pendingEmotion) tail.emotion=pendingEmotion; if(pendingGesture) tail.gesture=pendingGesture; }
-      else { if(pendingEmotion) setEmotion(pendingEmotion); if(pendingGesture){ const g=pendingGesture; setTimeout(()=>doGesture(g), 150); } }
-      pendingEmotion=pendingGesture=null;
+      if(tail){
+        if(pendingEmotion) tail.emotion=pendingEmotion;
+        if(pendingGesture) tail.gesture=pendingGesture;
+        for(const s of pendingSlots) tail.tagSlots.push({...s, w:Infinity});
+      }
+      else {
+        if(pendingEmotion) setEmotion(pendingEmotion);
+        if(pendingGesture){ const g=pendingGesture; setTimeout(()=>doGesture(g), 150); }
+        for(const s of pendingSlots){ if(s.type==="emotion") setEmotion(s.value); else setTimeout(()=>doGesture(s.value), 150); }
+      }
+      pendingEmotion=pendingGesture=null; pendingSlots=[];
     }
     // if nothing ever enqueued (e.g., very short without punctuation), ensure drain
     if(queue.length===0 && !displayed){

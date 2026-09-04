@@ -304,6 +304,81 @@ async def tts_flow(req: TTSRequest):
     return StreamingResponse(gen(), media_type="audio/mpeg",
                              headers={"Cache-Control": "no-cache", "X-Speaker": speaker, "X-Flow": "sarvam-ws"})
 
+@app.post("/tts/el-flow")
+async def tts_el_flow(req: TTSRequest):
+    """Realtime relay: ElevenLabs stream/with-timestamps -> NDJSON {audio, char timings}."""
+    text = req.text.strip()
+    if not text:
+        return JSONResponse({"error": "text is empty"}, status_code=422)
+    key = os.getenv("ELEVENLABS_API_KEY", "")
+    if not key:
+        return JSONResponse({"error": "ELEVENLABS_API_KEY not set"}, status_code=500)
+    voice = os.getenv("ELEVENLABS_VOICE", "TX3LPaxmHKxFdv7VOQHJ")  # Liam — energetic young male
+    model = os.getenv("ELEVENLABS_MODEL", "eleven_flash_v2_5")
+    url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice}/stream/with-timestamps"
+    params = {"output_format": "mp3_22050_32", "optimize_streaming_latency": "3"}
+    payload = {"text": text[:2000], "model_id": model}
+
+    def compact(j):
+        out = {"a": j.get("audio_base64", "")}
+        al = j.get("alignment") or {}
+        if al.get("characters"):
+            out["c"] = "".join(al["characters"])
+            out["s"] = al.get("character_start_times_seconds", [])
+            out["e"] = al.get("character_end_times_seconds", [])
+        return out
+
+    client = httpx.AsyncClient(timeout=60)
+    try:
+        up = await client.send(client.build_request(
+            "POST", url, params=params,
+            headers={"xi-api-key": key, "Content-Type": "application/json"}, json=payload), stream=True)
+    except Exception as e:
+        await client.aclose()
+        return JSONResponse({"error": f"elevenlabs unreachable: {str(e)[:200]}"}, status_code=502)
+    if up.status_code != 200:
+        body = (await up.aread())[:500]
+        await up.aclose(); await client.aclose()
+        return JSONResponse({"error": f"elevenlabs {up.status_code}: {body.decode('utf-8', 'replace')}"}, status_code=502)
+
+    # Gate on the first audio line so errors stay JSON instead of fake NDJSON.
+    it = up.aiter_lines()
+    first = None
+    try:
+        async for line in it:
+            if not line.strip():
+                continue
+            try:
+                j = json.loads(line)
+            except ValueError:
+                continue
+            if j.get("audio_base64"):
+                first = compact(j)
+                break
+        if first is None:
+            raise RuntimeError("no audio returned")
+    except Exception as e:
+        await up.aclose(); await client.aclose()
+        return JSONResponse({"error": f"elevenlabs failed: {str(e)[:200]}"}, status_code=502)
+
+    async def gen():
+        try:
+            yield json.dumps(first) + "\n"
+            async for line in it:
+                if not line.strip():
+                    continue
+                try:
+                    j = json.loads(line)
+                except ValueError:
+                    continue
+                if "audio_base64" in j or "alignment" in j:
+                    yield json.dumps(compact(j)) + "\n"
+        finally:
+            await up.aclose(); await client.aclose()
+
+    return StreamingResponse(gen(), media_type="application/x-ndjson",
+                             headers={"Cache-Control": "no-cache", "X-Flow": "elevenlabs"})
+
 @app.get("/tts/voices")
 async def tts_voices():
     return {
