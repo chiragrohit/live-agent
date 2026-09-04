@@ -45,7 +45,7 @@ agent = Agent(
 # Groq via OpenAI-compatible chat completions (no new deps). Same Max handbook,
 # reused off the zen agent so the two brains never drift.
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
-GROQ_MODEL = os.getenv("GROQ_MODEL", "qwen/qwen3-32b")
+GROQ_MODEL = os.getenv("GROQ_MODEL", "qwen/qwen3.8-27b")
 GROQ_BASE_URL = os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1")
 
 def make_agent(provider: str) -> Agent:
