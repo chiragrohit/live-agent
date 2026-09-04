@@ -101,3 +101,7 @@ h1 span{background:#1a1a1a;color:#fff;padding:3px 9px;border-radius:999px;margin
 .row button:active{transform:translateY(0)}
 .row button:disabled{opacity:.4;cursor:not-allowed;transform:none}
 .hint{font-size:10.5px;color:#888;text-align:center;padding:8px 10px;background:#fff;border-top:1px solid #eee;letter-spacing:.2px}
+/* face fx toggles (ticket 04) — hidden until directed */
+.fx-tear{position:absolute;left:26%;top:52%;width:10px;height:14px;background:#6ec6ff;border:2px solid #1a1a1a;border-radius:50% 50% 60% 60%;opacity:0;pointer-events:none}
+.fx-sweat{position:absolute;right:20%;top:30%;width:12px;height:15px;background:#b3e5fc;border:2px solid #1a1a1a;border-radius:50% 50% 60% 60%;opacity:0;pointer-events:none}
+.fx-puff{position:absolute;right:8%;top:6%;font-size:26px;opacity:0;pointer-events:none}

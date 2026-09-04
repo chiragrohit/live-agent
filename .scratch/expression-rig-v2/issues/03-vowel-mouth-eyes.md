@@ -4,7 +4,7 @@
 
 **Blocked by:** 01 (mouth shaping consumes the alignment timeline the plumbing exposes; gaze rides the new channel path).
 
-**Status:** ready-for-agent
+**Status:** done (shipped; analyser yields to measured vowel shapes, pupils track cursor when idle)
 
 - [ ] Sustained vowels visibly open the mouth wider than sibilants and lip consonants on the same line
 - [ ] Mouth still opens/closes in silence-free sync with the audio (no drift across a long sentence)

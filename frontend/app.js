@@ -42,6 +42,10 @@ const emotions = {
   smug: ()=>{ gsap.to(browL,{y:-3,rotation:-6,duration:.3}); gsap.to(browR,{y:1,rotation:2,duration:.3}); gsap.to(mouth,{width:62,height:14,borderRadius:12,duration:.3}); gsap.to('.cheek',{opacity:.55,duration:.3}); gsap.to(head,{rotation:2,duration:.3}); },
   shy: ()=>{ gsap.to(browL,{y:-1,rotation:-2,duration:.3}); gsap.to(browR,{y:-1,rotation:2,duration:.3}); gsap.to(mouth,{width:36,height:16,borderRadius:10,duration:.3}); gsap.to('.cheek',{opacity:1,duration:.3}); gsap.to(head,{rotation:-3,y:1,duration:.3}); gsap.to([eyeL,eyeR],{scaleY:0.94,duration:.3}); },
   sleepy: ()=>{ gsap.to(browL,{y:2,rotation:0,duration:.3}); gsap.to(browR,{y:2,rotation:0,duration:.3}); gsap.to([eyeL,eyeR],{scaleY:0.62,duration:.3}); gsap.to(mouth,{width:34,height:22,borderRadius:50,duration:.3}); gsap.to('.cheek',{opacity:.4,duration:.3}); },
+  suspicious: ()=>{ gsap.to(browL,{y:-10,rotation:-10,duration:.25}); gsap.to(browR,{y:2,rotation:2,duration:.25}); gsap.to([pupilL,pupilR],{x:7,duration:.25}); gsap.to(mouth,{width:50,height:12,borderRadius:8,duration:.25}); gsap.to(head,{rotation:2,duration:.3}); gsap.to('.cheek',{opacity:.3,duration:.3}); },
+  scared: ()=>{ gsap.to(browL,{y:-12,rotation:0,duration:.2}); gsap.to(browR,{y:-12,rotation:0,duration:.2}); gsap.to([eyeL,eyeR],{scale:1.15,scaleY:1.15,duration:.2}); gsap.to(mouth,{width:36,height:30,borderRadius:50,duration:.2}); gsap.to('.cheek',{opacity:.2,duration:.3}); gsap.to(head,{x:-2,duration:.06,yoyo:true,repeat:5}); setTimeout(()=>gsap.to([eyeL,eyeR],{scale:1,scaleY:1,duration:.3}),600); },
+  proud: ()=>{ gsap.to(browL,{y:-6,rotation:-6,duration:.3}); gsap.to(browR,{y:-6,rotation:6,duration:.3}); gsap.to(mouth,{width:66,height:18,borderRadius:12,duration:.3}); gsap.to('.cheek',{opacity:.6,duration:.3}); gsap.to(head,{rotation:-1,y:-3,duration:.3}); gsap.to([eyeL,eyeR],{scaleY:1,duration:.25}); },
+  bored: ()=>{ gsap.to(browL,{y:0,rotation:0,duration:.3}); gsap.to(browR,{y:0,rotation:0,duration:.3}); gsap.to([eyeL,eyeR],{scaleY:0.7,duration:.3}); gsap.to(mouth,{width:44,height:10,borderRadius:8,duration:.3}); gsap.to(head,{rotation:4,y:2,duration:.3}); gsap.to('.cheek',{opacity:.25,duration:.3}); },
 }
 function setEmotion(e){
   (emotions[e]||emotions.neutral)();
@@ -57,6 +61,14 @@ function headBoing(){ gsap.timeline().to(head,{scaleY:.88,scaleX:1.1,duration:.1
 
 // -- gestures --
 function doGesture(g){
+  if(g==="idle"){
+    gsap.to(armL,{rotation:-18,y:0,duration:.5,ease:"sine.out"});
+    gsap.to(armR,{rotation:18,y:0,duration:.5,ease:"sine.out"});
+    gsap.to(head,{rotation:0,y:0,x:0,duration:.5,ease:"sine.out"});
+    setEmotion('neutral');
+    clearTimeout(blinkTimer); blink();
+    return;
+  }
   if(g==="wave"){
     gsap.to(armR,{rotation:-110, duration:.35, ease:"back.out(1.5)"});
     gsap.to(armR,{rotation:-60, duration:.25, delay:.35});
@@ -94,8 +106,30 @@ function setGaze(dir){
   gazeHoldUntil=Date.now()+3000;
   gsap.to([pupilL,pupilR],{x:p[0],y:p[1],duration:.25,ease:"power2.out"});
 }
+const fxTear=$('#fxTear'), fxSweat=$('#fxSweat'), fxPuff=$('#fxPuff');
+let fxTimer=null;
+function fxShow(el,on,ms=2600){
+  gsap.to(el,{opacity:on?1:0,duration:.2});
+  if(on&&el===fxTear) gsap.fromTo(el,{y:-4},{y:12,duration:ms/1000,ease:"power1.in"});
+  if(on&&el===fxPuff) gsap.fromTo(el,{scale:.5},{scale:1.15,duration:.25,ease:"back.out(2)"});
+  clearTimeout(fxTimer);
+  if(on) fxTimer=setTimeout(()=>gsap.to([fxTear,fxSweat,fxPuff],{opacity:0,duration:.3}),ms);
+}
+function faceBrows(v){
+  if(v==="raise"){ gsap.to(browL,{y:-11,rotation:-8,duration:.25}); gsap.to(browR,{y:-11,rotation:8,duration:.25}); }
+  else if(v==="lower"){ gsap.to(browL,{y:4,rotation:-4,duration:.25}); gsap.to(browR,{y:4,rotation:4,duration:.25}); }
+  else if(v==="furrow"){ gsap.to(browL,{y:3,rotation:-18,duration:.2}); gsap.to(browR,{y:3,rotation:18,duration:.2}); }
+  else if(v==="one"){ gsap.to(browL,{y:-10,rotation:-10,duration:.25}); gsap.to(browR,{y:2,rotation:2,duration:.25}); }
+}
 const tagHandlers={
-  face:(payload)=>{ for(const part of String(payload).split(",")){ const kv=part.split("="); if(kv[0]==="gaze"&&kv[1]) setGaze(kv[1]); } },
+  face:(payload)=>{ for(const part of String(payload).split(",")){ const kv=part.split("="); const k=kv[0], v=kv[1];
+    if(k==="gaze"&&v) setGaze(v);
+    else if(k==="brows"&&v) faceBrows(v);
+    else if(k==="blink"&&v){ if(v==="fast") blinkDelay=900; else if(v==="slow") blinkDelay=4200; }
+    else if(k==="tear") fxShow(fxTear, v!=="off");
+    else if(k==="sweat") fxShow(fxSweat, v!=="off");
+    else if(k==="puff") fxShow(fxPuff, v!=="off");
+  } },
 };
 function fireSlot(s){
   if(!s||s.fired) return; s.fired=true;
@@ -106,7 +140,7 @@ function fireSlot(s){
 
 // -- living eyes: cursor tracking when idle, mood-driven blink rate --
 let gazeHoldUntil=0, blinkDelay=2600;
-const blinkMood={surprised:900, excited:1600, sleepy:4200, sad:3200};
+const blinkMood={surprised:900, excited:1600, sleepy:4200, sad:3200, scared:850, bored:3600};
 window.addEventListener('mousemove',(e)=>{
   if(talking || Date.now()<gazeHoldUntil) return;
   try{
