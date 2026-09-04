@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Live Agent — South Park Character</title>
+<link rel="stylesheet" href="style.css"/>
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <h1>Agentic Cartoon <span>LIVE</span></h1>
+    <div class="stage" id="stage">
+      <div class="char" id="char">
+        <div class="shadow"></div>
+        <div class="body">
+          <div class="arms">
+            <div class="arm left" id="armL"><div class="hand"></div></div>
+            <div class="arm right" id="armR"><div class="hand"></div></div>
+          </div>
+        </div>
+        <div class="head" id="head">
+          <div class="hat"></div>
+          <div class="brows" id="brows">
+            <div class="brow" id="browL"></div>
+            <div class="brow" id="browR"></div>
+          </div>
+          <div class="eyes">
+            <div class="eye" id="eyeL">
+              <div class="pupil" id="pupilL"></div>
+              <div class="eyelid" id="lidL"></div>
+            </div>
+            <div class="eye" id="eyeR">
+              <div class="pupil" id="pupilR"></div>
+              <div class="eyelid" id="lidR"></div>
+            </div>
+          </div>
+          <div class="cheeks"><div class="cheek"></div><div class="cheek"></div></div>
+          <div class="mouth" id="mouth"><div class="mouth-inner" id="mouthInner"><div class="teeth"></div><div class="tongue" id="tongue"></div></div></div>
+        </div>
+      </div>
+      <div class="chem-trail">SOUTH PARK AGENT</div>
+    </div>
+    <div class="status" id="status">idle • blinking</div>
+    <div class="voice-bar" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:center">
+      <label style="font-size:11px;font-weight:800;display:flex;align-items:center;gap:6px;background:#fff;border:2px solid #1a1a1a;border-radius:999px;padding:4px 10px;box-shadow:3px 3px 0 #1a1a1a"><input type="checkbox" id="ttsToggle" checked/> 🔊 Voice</label>
+      <select id="voiceSel" style="font-size:12px;font-weight:700;border:2px solid #1a1a1a;border-radius:999px;padding:6px 10px;box-shadow:3px 3px 0 #1a1a1a;background:#fff">
+        <option value="sunny" selected>sunny — Cheerful (cartoon)</option>
+        <option value="rehan">rehan — Youthful</option>
+        <option value="ritu">ritu — Expressive</option>
+        <option value="neha">neha — Energetic</option>
+        <option value="priya">priya — Cheerful</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="chat">
+    <div class="log" id="log"></div>
+    <div class="row">
+      <input id="input" placeholder="Say something to your character..." autocomplete="off" maxlength="2000"/>
+      <button id="send">SEND</button>
+    </div>
+    <div class="hint">Agent is <b>muse-spark-1.2-contributor</b> via <b>Agno</b> + <b>OpenCode Zen</b> — tags <code>[emotion:*]</code> <code>[gesture:*]</code> drive the rig live</div>
+  </div>
+</div>
+<script type="module" src="app.js"></script>
+</body>
+</html>
