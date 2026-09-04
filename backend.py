@@ -136,25 +136,27 @@ async def chat_stream(req: ChatRequest, request: Request):
         for bi, brain in enumerate(brains):
             try:
                 team = make_team(brain)
-                with asyncio.timeout(LLM_TIMEOUT):
-                    async for ev in team.arun(prompt, stream=True, stream_events=True):
-                        if await request.is_disconnected():
-                            gone = True  # viewer left: stop burning LLM tokens
-                            break
-                        if "Content" not in type(ev).__name__:
-                            continue  # Started/Completed events re-emit full text = exact repeats
-                        content = getattr(ev, "content", None)
-                        if not content or not isinstance(content, str):
-                            continue
-                        speaker = getattr(ev, "agent_name", "") or ""
-                        if speaker in bufs:
-                            events, bufs[speaker] = split_chunk(bufs[speaker] + content)
-                            for typ, val in events:
-                                if typ == "token":
-                                    texts[speaker].append(val)
-                                yield sse(typ, val, speaker)
-                        elif getattr(ev, "team_id", None):
-                            leader_texts.append(content)  # director synthesis: fallback only, never voiced
+                deadline = time.monotonic() + LLM_TIMEOUT
+                async for ev in team.arun(prompt, stream=True, stream_events=True):
+                    if time.monotonic() > deadline:
+                        raise TimeoutError("llm turn timed out")  # builtin, no CM protocol needed
+                    if await request.is_disconnected():
+                        gone = True  # viewer left: stop burning LLM tokens
+                        break
+                    if "Content" not in type(ev).__name__:
+                        continue  # Started/Completed events re-emit full text = exact repeats
+                    content = getattr(ev, "content", None)
+                    if not content or not isinstance(content, str):
+                        continue
+                    speaker = getattr(ev, "agent_name", "") or ""
+                    if speaker in bufs:
+                        events, bufs[speaker] = split_chunk(bufs[speaker] + content)
+                        for typ, val in events:
+                            if typ == "token":
+                                texts[speaker].append(val)
+                            yield sse(typ, val, speaker)
+                    elif getattr(ev, "team_id", None):
+                        leader_texts.append(content)  # director synthesis: fallback only, never voiced
                 break  # streamed cleanly (or client left) — done with brains
             except Exception:
                 import traceback; traceback.print_exc()
@@ -264,8 +266,7 @@ async def chat(req: ChatRequest, request: Request):
     res = None
     for brain in brains:
         try:
-            with asyncio.timeout(LLM_TIMEOUT):
-                res = await make_team(brain).arun(prompt)
+            res = await asyncio.wait_for(make_team(brain).arun(prompt), LLM_TIMEOUT)
             break
         except Exception:
             import traceback; traceback.print_exc()
