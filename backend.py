@@ -183,7 +183,7 @@ async def chat_stream(req: ChatRequest, request: Request):
                     yield sse(typ, val, "Max")
             yield f"data: {json.dumps({'type': 'done'})}\n\n"
         if ok:
-            line = " / ".join(f"{c}: {''.join(texts[c]).strip()}" for c in CAST if texts[c])
+            line = "; ".join(c + ' said "' + "".join(texts[c]).strip() + '"' for c in CAST if texts[c])
             if line:
                 _remember(sid, msg, line[:2000])
 
