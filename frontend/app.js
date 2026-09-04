@@ -1,12 +1,13 @@
 const $ = s => document.querySelector(s);
 const log = $('#log'), input = $('#input'), sendBtn = $('#send'), statusEl = $('#status'), ttsToggle=$('#ttsToggle');
-const char = $('#char'), head = $('#head'), mouth = $('#mouth'), mouthInner = $('#mouthInner');
+const char = $('#char'), head = $('#head'), mouth = $('#mouth'), mouthInner = $('#mouthInner'), tongue = $('#tongue');
 const eyeL = $('#eyeL'), eyeR = $('#eyeR'), lidL = $('#lidL'), lidR = $('#lidR');
 const pupilL = $('#pupilL'), pupilR = $('#pupilR');
 const browL = $('#browL'), browR = $('#browR');
 const armL = $('#armL'), armR = $('#armR');
 const jaw = $('#jaw');
 const jawPose={surprised:12, scared:10, excited:5, angry:4, happy:3, sad:2, proud:2};
+const mouthOpenPose={surprised:42, scared:30, excited:34, happy:26, sleepy:22, proud:18, shy:16};
 
 let talking = false;
 let talkTimer = null;
@@ -35,7 +36,7 @@ blink();
 
 // -- emotions -- ponytail: expanded params so neutral isn't stuck as concerned
 const emotions = {
-  neutral: ()=>{ gsap.to(browL,{y:-2,rotation:-4,duration:.35}); gsap.to(browR,{y:-2,rotation:4,duration:.35}); gsap.to(mouth,{width:48,height:18,borderRadius:12,duration:.3}); gsap.to('.cheek',{opacity:.35,duration:.3}); gsap.to(head,{rotation:0,y:0,duration:.3}); gsap.to([eyeL,eyeR],{scaleY:1,scaleX:1,duration:.25}); gsap.to([pupilL,pupilR],{y:0,duration:.2}); },
+  neutral: ()=>{ gsap.to(browL,{y:-2,rotation:-4,duration:.35}); gsap.to(browR,{y:-2,rotation:4,duration:.35}); gsap.to(mouth,{width:44,height:12,borderRadius:12,duration:.3}); mouthInterior(12); gsap.to('.cheek',{opacity:.35,duration:.3}); gsap.to(head,{rotation:0,y:0,duration:.3}); gsap.to([eyeL,eyeR],{scaleY:1,scaleX:1,duration:.25}); gsap.to([pupilL,pupilR],{y:0,duration:.2}); },
   happy: ()=>{ gsap.to(browL,{y:-7,rotation:-10,duration:.3}); gsap.to(browR,{y:-7,rotation:10,duration:.3}); gsap.to(mouth,{width:68,height:26,borderRadius:14,duration:.3}); gsap.to('.cheek',{opacity:.9,duration:.3}); gsap.to(head,{rotation:1,y:-2,duration:.3}); gsap.to([eyeL,eyeR],{scaleY:0.92,scaleX:1.04,duration:.25}); },
   excited: ()=>{ gsap.to(browL,{y:-10,rotation:-14,duration:.25}); gsap.to(browR,{y:-10,rotation:14,duration:.25}); gsap.to(mouth,{width:78,height:34,borderRadius:16,duration:.25}); gsap.to('.cheek',{opacity:1,duration:.3}); windUp(.12); setTimeout(()=>popUp(8),130); gsap.to([eyeL,eyeR],{scaleY:0.95,duration:.2}); },
   sad: ()=>{ gsap.to(browL,{y:5,rotation:16,duration:.3}); gsap.to(browR,{y:5,rotation:-16,duration:.3}); gsap.to(mouth,{width:44,height:14,borderRadius:8,duration:.3}); gsap.to('.cheek',{opacity:.15,duration:.3}); gsap.to(head,{rotation:-2,y:2,duration:.3}); gsap.to([eyeL,eyeR],{scaleY:0.96,duration:.3}); },
@@ -54,6 +55,7 @@ function setEmotion(e){
   (emotions[e]||emotions.neutral)();
   blinkDelay=blinkMood[e]||2600;
   gsap.to(jaw,{y:jawPose[e]||0,duration:.3,ease:"power2.out"});
+  mouthInterior(mouthOpenPose[e]||12);
   statusEl.textContent = e + " • " + (talking ? "talking" : "idle");
 }
 
@@ -234,7 +236,11 @@ window.addEventListener('mousemove',(e)=>{
   }catch{}
 });
 
-// -- lip sync (fake + audio-driven) --
+// mouth interior: teeth/tongue only exist when the mouth is actually open — rest is a clean smile line
+function mouthInterior(h){
+  gsap.set(tongue,{opacity:h>22?1:0});
+  gsap.set('.teeth',{opacity:h>14?1:0});
+}
 let audioEl=null, audioCtx=null, analyser=null, audioSrc=null, rafId=null;
 function flapTick(){
   if(!talking || audioEl) return; // audio drives mouth when active
@@ -242,6 +248,7 @@ function flapTick(){
   const h = open ? 18 + Math.random()*22 : 10 + Math.random()*8;
   const w = open ? 54 + Math.random()*18 : 64;
   gsap.to(mouth,{ height:h, width:w, duration:0.07, ease:"power1.out" });
+  mouthInterior(h);
   if(Math.random()>0.85) gsap.to([pupilL,pupilR],{ y: (Math.random()-0.5)*2, duration:0.06 });
   talkTimer = setTimeout(flapTick, 70 + Math.random()*90);
 }
@@ -271,6 +278,7 @@ function startAudioLipSync(audio){
       const h = 14 + norm*30 + Math.random()*4;
       const w = 68 - norm*10;
       gsap.to(mouth,{ height:h, width:w, duration:0.06, overwrite:true });
+      mouthInterior(h);
       if(norm>0.45) gsap.to([pupilL,pupilR],{ y: (Math.random()-0.5)*1.5, duration:0.05 });
       rafId = requestAnimationFrame(tick);
     };
@@ -420,6 +428,7 @@ async function playElFlow(handle, item, ui){
       const c=cseq[mi];
       const [w,h]=(!c||c.start===undefined||t<c.start)?mouthShape(" "):mouthShape(c.ch);
       gsap.to(mouth,{width:w,height:h,duration:.05,overwrite:true});
+      mouthInterior(h);
     };
     const tick=()=>{
       if(ended||finished) return;
