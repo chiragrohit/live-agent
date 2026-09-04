@@ -49,7 +49,23 @@ h1 span{background:#1a1a1a;color:#fff;padding:3px 9px;border-radius:999px;margin
 .chem-trail{position:absolute;left:14px;right:14px;bottom:0;height:38px;background:#fff;border-top:4px solid #1a1a1a;display:flex;align-items:center;justify-content:center;font-weight:900;letter-spacing:1px;font-size:13px}
 .char{position:relative;width:220px;height:320px;transform-origin:50% 90%;}
 .cast{display:flex;align-items:flex-end;justify-content:center;gap:6px;transform-origin:50% 100%}
-.spot-mia{transform:scale(.86);transform-origin:50% 100%}
+.cast>div{transform-origin:50% 100%}
+/* girl variant: same rig IDs, female read via scoped overrides (pigtails, lashes, lips, dress) */
+.is-girl .head::before{content:"";position:absolute;top:56px;left:-26px;width:26px;height:74px;background:var(--hair);border:4px solid #1a1a1a;border-top:12px solid #b39ddb}
+.is-girl .head::after{content:"";position:absolute;top:56px;right:-26px;width:26px;height:74px;background:var(--hair);border:4px solid #1a1a1a;border-top:12px solid #b39ddb}
+.is-girl .haircap{height:92px}
+.is-girl .eye{width:68px;height:66px}
+.is-girl .eye::before{content:"";position:absolute;top:3px;left:3px;width:9px;height:9px;background:#1a1a1a;box-shadow:12px 0 0 #1a1a1a}
+.is-girl .eye::after{content:"";position:absolute;top:3px;right:3px;width:9px;height:9px;background:#1a1a1a;box-shadow:-12px 0 0 #1a1a1a}
+.is-girl .brow{height:7px}
+.is-girl .mouth{background:#c2255c}
+.is-girl .body{width:96px}
+.is-girl .leg{background:var(--skin)}
+/* per-speaker bubbles */
+.bubble.sp-Mia{background:#f5efff}
+.bubble .sp-name{font-weight:900;margin-right:6px}
+.bubble.sp-Max .sp-name{color:#d63f2a}
+.bubble.sp-Mia .sp-name{color:#7c5cd6}
 #banterBtn{font:inherit;font-size:15px;font-weight:700;border:3px solid #1a1a1a;border-radius:10px;padding:2px 8px;background:#fff;cursor:pointer;box-shadow:2px 2px 0 #1a1a1a}
 #banterBtn:active{transform:translate(2px,2px);box-shadow:none}
 @media (max-width:560px){ .cast{transform:scale(.68)} }

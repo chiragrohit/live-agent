@@ -3,11 +3,34 @@ const log = $('#log'), input = $('#input'), sendBtn = $('#send'), statusEl = $('
 import { Character } from './character.js';
 // Max: the base character, instantiated with defaults. A variant is one
 // constructor call away — see character.js header for the params.
-const VOICE = { Max: "TX3LPaxmHKxFdv7VOQHJ", Mia: "cgSgspJ2msm6clMCkdW9" }; // Liam, Jessica
-const cast = {
-  Max: new Character($('#char')),
-  Mia: new Character($('#charMia'), { palette: { shirt: '#7c5cd6', hair: '#241d18' }, showName: 'THE MAX & MIA SHOW' }),
-};
+let VOICE = { Max: "TX3LPaxmHKxFdv7VOQHJ", Mia: "cgSgspJ2msm6clMCkdW9" }; // fallback; refreshed from backend below
+// Roster: one row per cast member. A 3rd character = 1 row here + 1 backend CHARACTERS entry.
+// Extra rigs clone the #char template; Character queries are root-scoped so duplicate IDs stay contained.
+const ROSTER = [
+  { name: "Max", scale: 1,   palette: {},                                    look: "male" },
+  { name: "Mia", scale: .86, palette: { shirt: '#7c5cd6', hair: '#241d18' }, look: "female" },
+];
+const cast = {}, order = [];
+{
+  const tpl = $('#char');
+  const showName = 'THE ' + ROSTER.map(r => r.name).join(' & ').toUpperCase() + ' SHOW';
+  document.querySelector('.chem-trail').textContent = showName;
+  ROSTER.forEach((r, i) => {
+    let root = tpl;
+    if (i > 0) {
+      root = tpl.cloneNode(true);
+      root.id = 'char' + r.name;
+      const spot = document.createElement('div');
+      spot.style.transform = `scale(${r.scale})`;
+      $('#cast').appendChild(spot);
+      spot.appendChild(root);
+    }
+    if (r.look === "female") root.classList.add('is-girl');
+    cast[r.name] = new Character(root, { palette: r.palette, showName });
+    order.push(r.name);
+  });
+}
+fetch('/tts/voices').then(r => r.json()).then(j => { if (j.cast) for (const [n, c] of Object.entries(j.cast)) VOICE[n] = c.voice; }).catch(() => {});
 const max = cast.Max, mia = cast.Mia;
 const wireStatus = (name, ch) => { ch.onStatus = (text, m) => { statusEl.textContent = name + ': ' + text; statusEl.classList.toggle('talking', !!m?.talking); }; };
 wireStatus('Max', max); wireStatus('Mia', mia);
@@ -120,7 +143,7 @@ async function playElFlow(handle, item, ui, C){
       if(!ok){ reject(new Error('el playback failed')); return; }
       for(const s of slots){ if(!s.fired) C.fireSlot(s); }
       if(cur){ words.push(cur); cur=null; }
-      ui.commitItem(item.text);
+      ui.commitItem(item.text, item.speaker);
       if(C.talking) C.flapTick();
       resolve();
     };
@@ -137,7 +160,7 @@ async function playElFlow(handle, item, ui, C){
     const renderDue=(t)=>{
       let n=0;
       while(n<words.length && words[n].start!==undefined && words[n].start<=t) n++;
-      if(n>shown){ shown=n; ui.renderShown(words.slice(0,n).map(w=>w.t).join(" ")); }
+      if(n>shown){ shown=n; ui.renderShown(words.slice(0,n).map(w=>w.t).join(" "), item.speaker); }
     };
     const mouthDue=(t)=>{
       while(mi<cseq.length && cseq[mi].end!==undefined && cseq[mi].end<t) mi++;
@@ -201,29 +224,41 @@ async function send(){
   const isBanter=banterMode; banterMode=false;
   busy = true; sendBtn.disabled = true; input.value="";
   addBubble(isBanter?("\uD83C\uDFB2 "+msg):msg, "user");
-  const botBubble = addBubble("…", "bot");
-  botBubble.classList.add('stream');
   statusEl.textContent = "thinking";
   statusEl.classList.add('thinking');
-  max.think(); mia.think();
+  for(const n of order) cast[n].think();
 
-  let queue=[], processing=false, streamDone=false, sentenceBuf="", bufSpeaker="Max", pendingEmotion=null, pendingGesture=null, pendingSlots=[], pendingSp=null, displayed="", started=false;
+  let queue=[], processing=false, streamDone=false, sentenceBuf="", bufSpeaker="Max", pendingEmotion=null, pendingGesture=null, pendingSlots=[], pendingSp=null, started=false;
   const SENT_RE = /^[^.!?]*[.!?]+/;
   let revealTimer=null;
   const clearReveal=()=>{ if(revealTimer){ clearTimeout(revealTimer); revealTimer=null; } };
   const armReveal=(id)=>{ revealTimer=id; };
-  const renderShown=(shown)=>{ botBubble.textContent=(displayed? displayed+" " : "")+shown; log.scrollTop=log.scrollHeight; };
-  const commitItem=(text)=>{ displayed=displayed? displayed+" "+text : text; botBubble.textContent=displayed; log.scrollTop=log.scrollHeight; };
+  const speakerBubbles={};
+  const bubbleFor=(sp)=>{
+    sp=(sp==="Mia")?"Mia":"Max";
+    if(!speakerBubbles[sp]){
+      const el=addBubble("", "bot sp-"+sp);
+      el.classList.add('stream');
+      const nm=document.createElement("b"); nm.textContent=sp+":"; nm.className="sp-name";
+      const tx=document.createTextNode("");
+      el.append(nm, tx);
+      speakerBubbles[sp]={el, tx, displayed:""};
+    }
+    return speakerBubbles[sp];
+  };
+  const renderShown=(shown, sp)=>{ const B=bubbleFor(sp); B.tx.textContent=(B.displayed? B.displayed+" " : "")+shown; log.scrollTop=log.scrollHeight; };
+  const commitItem=(text, sp)=>{ const B=bubbleFor(sp); B.displayed=B.displayed? B.displayed+" "+text : text; B.tx.textContent=B.displayed; log.scrollTop=log.scrollHeight; };
   const ui={renderShown, commitItem, clearReveal, armReveal};
   const speak=async(item)=>{
     const C=cast[item.speaker]||max;
+    for(const n of order){ const ch=cast[n]; if(ch!==C && ch.talking) ch.stopTalking(); } // only the speaker's mouth moves
     const words=item.text.split(/\s+/).filter(Boolean);
     const fireTags=()=>{ if(item.emotion) C.setEmotion(item.emotion); if(item.gesture) setTimeout(()=>C.gesturePlay(item.gesture), 180); };
     const fakeSpeak=(totalMs)=>new Promise((res)=>{
       fireTags(); for(const s of (item.tagSlots||[])) if(s.type==="tag") C.fireSlot({...s});
       if(!C.talking) C.startTalking();
-      let i=0; renderShown(words[0]||"");
-      const step=()=>{ i++; if(i>=words.length){ clearReveal(); commitItem(item.text); res(); return; } renderShown(words.slice(0,i+1).join(" ")); revealTimer=setTimeout(step, totalMs/Math.max(1,words.length)); };
+      let i=0; renderShown(words[0]||"", item.speaker);
+      const step=()=>{ i++; if(i>=words.length){ clearReveal(); commitItem(item.text, item.speaker); res(); return; } renderShown(words.slice(0,i+1).join(" "), item.speaker); revealTimer=setTimeout(step, totalMs/Math.max(1,words.length)); };
       revealTimer=setTimeout(step, totalMs/Math.max(1,words.length));
     });
     // elevenlabs only: timestamp-driven playback, estimated silent fallback
@@ -242,7 +277,7 @@ async function send(){
     if(processing) return; processing=true;
     while(queue.length>0){
       const item=queue.shift();
-      if(!started){ started=true; statusEl.classList.remove('thinking'); botBubble.textContent=""; displayed=""; max.setEmotion('neutral'); mia.setEmotion('neutral'); }
+      if(!started){ started=true; statusEl.classList.remove('thinking'); for(const n of order) cast[n].setEmotion('neutral'); }
       // one-ahead prefetch: start next sentence el-flow while current speaks
       if(queue.length>0){ const nx=queue[0]; if(!nx.elFlow) nx.elFlow=startElFlow(nx.text, voiceSettingsFor(nx, cast[nx.speaker]||max), VOICE[nx.speaker]); }
       const C=cast[item.speaker]||max;
@@ -263,11 +298,11 @@ async function send(){
   const finalize=()=>{
     if(finished) return; finished=true;
     clearReveal();
-    botBubble.classList.remove('stream');
-    max.stopTalking(); mia.stopTalking();
+    for(const k in speakerBubbles) speakerBubbles[k].el.classList.remove('stream');
+    for(const n of order) cast[n].stopTalking();
     statusEl.textContent='idle \u2022 blinking';
     statusEl.classList.remove('talking','thinking');
-    setTimeout(()=>{ max.setEmotion('neutral'); mia.setEmotion('neutral'); }, 900);
+    setTimeout(()=>{ for(const n of order) cast[n].setEmotion('neutral'); }, 900);
   };
 
   try{
@@ -311,7 +346,7 @@ async function send(){
             if(j.type==="emotion") pendingEmotion=j.value; else pendingGesture=j.value;
           }
         }
-        else if(j.type==="error"){ if(!started){ botBubble.textContent=""; started=true; } displayed+=(displayed?" ":"")+"[error: "+j.content+"]"; botBubble.textContent=displayed; }
+        else if(j.type==="error"){ started=true; const B=bubbleFor(bufSpeaker); B.displayed+=(B.displayed?" ":"")+"[error: "+j.content+"]"; B.tx.textContent=B.displayed; }
       }
     }
     // flush any leftover buf as token
@@ -337,25 +372,24 @@ async function send(){
       pendingEmotion=pendingGesture=null; pendingSlots=[];
     }
     // if nothing ever enqueued (e.g., very short without punctuation), ensure drain
-    if(queue.length===0 && !displayed){
-      botBubble.textContent="(no reply — check backend logs)";
+    if(queue.length===0 && Object.keys(speakerBubbles).length===0){
+      bubbleFor(bufSpeaker).tx.textContent="(no reply — check backend logs)";
       finalize();
     } else if(!processing && queue.length===0){
       // drained already, finalize
-      if(!max.talking && !mia.talking) finalize();
+      if(order.every(n=>!cast[n].talking)) finalize();
       // else finalize will be called after last audio
     }
     // wait until queue drains
     while(processing || queue.length>0) await new Promise(r=> setTimeout(r, 120));
   }catch(e){
-    botBubble.textContent = "Failed to reach agent: " + e.message;
-    botBubble.style.background="#ffdddd";
-    max.stopTalking(); mia.stopTalking();
+    const B=bubbleFor("Max"); B.tx.textContent="Failed to reach agent: "+e.message; B.el.style.background="#ffdddd";
+    for(const n of order) cast[n].stopTalking();
     statusEl.classList.remove('thinking');
   }finally{
     busy=false; sendBtn.disabled=false; input.focus();
     // final safety
-    setTimeout(()=>{ if(!processing && !max.talking && !mia.talking) { statusEl.classList.remove('thinking'); } }, 1000);
+    setTimeout(()=>{ if(!processing && order.every(n=>!cast[n].talking)) { statusEl.classList.remove('thinking'); } }, 1000);
   }
 }
 
@@ -373,4 +407,4 @@ sendBtn.onclick = send;
 input.addEventListener('keydown', e=>{ if(e.key==="Enter") send(); });
 
 // demo greeting
-setTimeout(()=>addBubble("Hey! We're Max & Mia — talk to us, or hit \uD83C\uDFB2 for improv!","bot"), 400);
+setTimeout(()=>addBubble("Hey! We're "+order.join(" & ")+" — talk to us, or hit \uD83C\uDFB2 for improv!","bot"), 400);
