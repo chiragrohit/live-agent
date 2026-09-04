@@ -112,3 +112,11 @@ h1 span{background:#1a1a1a;color:#fff;padding:3px 9px;border-radius:999px;margin
 .fx-tear{position:absolute;left:26%;top:52%;width:10px;height:14px;background:#6ec6ff;border:2px solid #1a1a1a;border-radius:50% 50% 60% 60%;opacity:0;pointer-events:none}
 .fx-sweat{position:absolute;right:20%;top:30%;width:12px;height:15px;background:#b3e5fc;border:2px solid #1a1a1a;border-radius:50% 50% 60% 60%;opacity:0;pointer-events:none}
 .fx-puff{position:absolute;right:8%;top:6%;font-size:26px;opacity:0;pointer-events:none}
+/* desktop: character stage centre, chat docks as a right sidebar. Phone keeps stacked column. */
+@media (min-width:901px){
+  .wrap{flex-direction:row;align-items:stretch;justify-content:center;width:min(1180px,96vw)}
+  .top{flex:1;min-width:0}
+  .stage{height:540px}
+  .chat{width:360px;flex-shrink:0}
+  .log{flex:1;height:auto;min-height:340px}
+}
