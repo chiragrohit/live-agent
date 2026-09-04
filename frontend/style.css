@@ -4,8 +4,8 @@
   --ink:#1a1a1a;
   --skin:#ffcf9e;
   --cheek:#ff8a8a;
-  --hair:#5a3a1e;
-  --jacket:#2e9e8f;
+  --hair:#3a2a18;
+  --jacket:#e8563f;
   --col: 460px;
 }
 *{box-sizing:border-box}
@@ -65,20 +65,20 @@ h1 span{background:#1a1a1a;color:#fff;padding:3px 9px;border-radius:999px;margin
   width:210px;height:190px;background:var(--skin);border:4px solid #1a1a1a;border-radius:48% 48% 46% 46% / 52% 52% 44% 44%;
   overflow:visible;display:flex;flex-direction:column;align-items:center;
 }
-/* Frank: balding dad tufts, big nose, heavy jaw chin */
-.hair-side{position:absolute;top:38px;width:26px;height:34px;background:var(--hair);border:3px solid #1a1a1a;border-radius:50%}
-.hair-side.left{left:-14px;transform:rotate(-18deg)}
-.hair-side.right{right:-14px;transform:rotate(18deg)}
-.ear{position:absolute;top:96px;width:20px;height:28px;background:var(--skin);border:3px solid #1a1a1a;border-radius:50%}
-.ear.left{left:-14px}
-.ear.right{right:-14px}
-.nose{position:absolute;top:92px;left:50%;transform:translateX(-50%);width:32px;height:38px;background:var(--skin);border:3px solid #1a1a1a;border-radius:46% 46% 50% 50%}
-.jaw{position:absolute;bottom:-12px;left:50%;transform:translateX(-50%);width:150px;height:52px;background:var(--skin);border:4px solid #1a1a1a;border-radius:44% 44% 48% 48% / 60% 60% 52% 52%}
+/* Max: full school-kid hair, small nose, light chin */
+.haircap{position:absolute;top:-22px;left:50%;transform:translateX(-50%);width:196px;height:78px;background:var(--hair);border:4px solid #1a1a1a;border-radius:60px 60px 22px 22px}
+.haircap::before{content:"";position:absolute;bottom:-12px;left:26px;width:0;height:0;border-left:14px solid transparent;border-right:14px solid transparent;border-top:20px solid var(--hair)}
+.haircap::after{content:"";position:absolute;bottom:-12px;right:26px;width:0;height:0;border-left:14px solid transparent;border-right:14px solid transparent;border-top:20px solid var(--hair)}
+.ear{position:absolute;top:100px;width:16px;height:22px;background:var(--skin);border:3px solid #1a1a1a;border-radius:50%}
+.ear.left{left:-11px}
+.ear.right{right:-11px}
+.nose{position:absolute;top:96px;left:50%;transform:translateX(-50%);width:24px;height:28px;background:var(--skin);border:3px solid #1a1a1a;border-radius:46% 46% 50% 50%}
+.jaw{position:absolute;bottom:-8px;left:50%;transform:translateX(-50%);width:110px;height:34px;background:var(--skin);border:4px solid #1a1a1a;border-radius:44% 44% 48% 48% / 60% 60% 52% 52%}
 .cheeks{position:absolute;top:94px;width:100%;display:flex;justify-content:space-between;padding:0 14px;pointer-events:none}
 .cheek{width:30px;height:16px;background:var(--cheek);border-radius:50%;opacity:.55}
 .eyes{position:absolute;top:56px;left:50%;transform:translateX(-50%);display:flex;gap:5px}
-.eye{width:54px;height:50px;background:#fff;border:3px solid #1a1a1a;border-radius:50%;position:relative;overflow:hidden;display:flex;align-items:center;justify-content:center}
-.pupil{width:16px;height:20px;background:#1a1a1a;border-radius:50%;position:relative;transition:transform .08s}
+.eye{width:58px;height:54px;background:#fff;border:3px solid #1a1a1a;border-radius:50%;position:relative;overflow:hidden;display:flex;align-items:center;justify-content:center}
+.pupil{width:18px;height:22px;background:#1a1a1a;border-radius:50%;position:relative;transition:transform .08s}
 .pupil::after{content:"";position:absolute;top:4px;left:4px;width:5px;height:5px;background:#fff;border-radius:50%}
 .eyelid{position:absolute;inset:-2px;background:var(--skin);border-bottom:3px solid #1a1a1a;transform:translateY(-100%);pointer-events:none}
 .brows{position:absolute;top:38px;left:50%;transform:translateX(-50%);display:flex;gap:26px;width:126px;justify-content:center}

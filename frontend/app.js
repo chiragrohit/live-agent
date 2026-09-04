@@ -193,7 +193,7 @@ function stageRestore(ms=2500){
     gsap.to(char,{scale:1,x:0,duration:.4,ease:"sine.out"});
     if(stage) gsap.to(stage,{scale:1,x:0,duration:.4,ease:"sine.out"});
     if(stage) gsap.to(stage,{filter:"brightness(1)",duration:.4});
-    if(chemTrail) chemTrail.textContent="THE FRANK SHOW";
+    if(chemTrail) chemTrail.textContent="THE MAX SHOW";
   },ms);
 }
 const tagHandlers={
@@ -633,4 +633,4 @@ sendBtn.onclick = send;
 input.addEventListener('keydown', e=>{ if(e.key==="Enter") send(); });
 
 // demo greeting
-setTimeout(()=>addBubble("Hey! I'm Frank — talk to me and watch me move. Try 'be super excited and wave!'","bot"), 400);
+setTimeout(()=>addBubble("Hey! I'm Max — talk to me and watch me move. Try 'be super excited and wave!'","bot"), 400);
