@@ -42,19 +42,19 @@ agent = Agent(
     markdown=False,
 )
 
-# Groq via OpenAI-compatible chat completions (no new deps). Same Max handbook,
+# OpenRouter via OpenAI-compatible chat completions (no new deps). Same Max handbook,
 # reused off the zen agent so the two brains never drift.
-GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
-GROQ_MODEL = os.getenv("GROQ_MODEL", "qwen/qwen3.8-27b")
-GROQ_BASE_URL = os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1")
+OR_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
+OR_MODEL = os.getenv("OPENROUTER_MODEL", "nvidia/nemotron-3.5-lightning")
+OR_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
 
 def make_agent(provider: str) -> Agent:
-    if provider == "groq":
-        if not GROQ_API_KEY:
-            raise ValueError("groq not configured")
-        gm = OpenAIChat(id=GROQ_MODEL, api_key=GROQ_API_KEY, base_url=GROQ_BASE_URL,
+    if provider == "openrouter":
+        if not OR_API_KEY:
+            raise ValueError("openrouter not configured")
+        om = OpenAIChat(id=OR_MODEL, api_key=OR_API_KEY, base_url=OR_BASE_URL,
                         temperature=0.9, max_tokens=2048)
-        return Agent(model=gm, description=agent.description,
+        return Agent(model=om, description=agent.description,
                      instructions=agent.instructions, markdown=False)
     return agent
 
@@ -73,7 +73,7 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=False,
 class ChatRequest(BaseModel):
     message: str
     session_id: str = "default"
-    model: str = "zen"  # zen | groq
+    model: str = "zen"  # zen | openrouter
 
 TAG_RE = re.compile(r"\[([a-z_]+):([a-z0-9_=\.\-,]+(?::[a-z0-9_=\.\-,]+)*)\]")
 
@@ -130,8 +130,8 @@ def _flush_rest(rest: str):
 async def health():
     return {"status": "ok", "model": MODEL_ID, "base_url": BASE_URL,
             "llm_configured": bool(API_KEY), "tts_configured": bool(os.getenv("ELEVENLABS_API_KEY", "")),
-            "groq_configured": bool(GROQ_API_KEY),
-            "models": {"zen": MODEL_ID, "groq": GROQ_MODEL}}
+            "openrouter_configured": bool(OR_API_KEY),
+            "models": {"zen": MODEL_ID, "openrouter": OR_MODEL}}
 
 @app.post("/chat/stream")
 async def chat_stream(req: ChatRequest):

@@ -20,7 +20,7 @@ app = modal.App("live-agent", image=image)
 
 
 @app.function(
-    secrets=[modal.Secret.from_name("live-agent-env"), modal.Secret.from_name("elevenlabs-key"), modal.Secret.from_name("groq-key")],
+    secrets=[modal.Secret.from_name("live-agent-env"), modal.Secret.from_name("elevenlabs-key"), modal.Secret.from_name("openrouter-key")],
 )
 @modal.asgi_app()
 def serve():
