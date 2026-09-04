@@ -45,18 +45,24 @@ agent = Agent(
 # OpenRouter via OpenAI-compatible chat completions (no new deps). Same Max handbook,
 # reused off the zen agent so the two brains never drift.
 OR_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
-OR_MODEL = os.getenv("OPENROUTER_MODEL", "nvidia/nemotron-3.5-lightning")
 OR_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+# named brains: key -> OpenRouter model id. Request values outside this map 400.
+BRAINS = {
+    "nemotron": os.getenv("OPENROUTER_MODEL", "nvidia/nemotron-3.5-lightning"),
+    "qwen": os.getenv("OPENROUTER_MODEL_QWEN", "qwen/qwen3.7-flash"),
+}
 
 def make_agent(provider: str) -> Agent:
-    if provider == "openrouter":
-        if not OR_API_KEY:
-            raise ValueError("openrouter not configured")
-        om = OpenAIChat(id=OR_MODEL, api_key=OR_API_KEY, base_url=OR_BASE_URL,
-                        temperature=0.9, max_tokens=2048)
-        return Agent(model=om, description=agent.description,
-                     instructions=agent.instructions, markdown=False)
-    return agent
+    if not provider or provider == "zen":
+        return agent
+    if provider not in BRAINS:
+        raise ValueError(f"unknown brain '{provider}'")
+    if not OR_API_KEY:
+        raise ValueError("openrouter not configured")
+    om = OpenAIChat(id=BRAINS[provider], api_key=OR_API_KEY, base_url=OR_BASE_URL,
+                    temperature=0.9, max_tokens=2048)
+    return Agent(model=om, description=agent.description,
+                 instructions=agent.instructions, markdown=False)
 
 app = FastAPI(title="Live Agent - Max")
 
@@ -73,7 +79,7 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=False,
 class ChatRequest(BaseModel):
     message: str
     session_id: str = "default"
-    model: str = "zen"  # zen | openrouter
+    model: str = "zen"  # zen | nemotron | qwen
 
 TAG_RE = re.compile(r"\[([a-z_]+):([a-z0-9_=\.\-,]+(?::[a-z0-9_=\.\-,]+)*)\]")
 
@@ -131,7 +137,7 @@ async def health():
     return {"status": "ok", "model": MODEL_ID, "base_url": BASE_URL,
             "llm_configured": bool(API_KEY), "tts_configured": bool(os.getenv("ELEVENLABS_API_KEY", "")),
             "openrouter_configured": bool(OR_API_KEY),
-            "models": {"zen": MODEL_ID, "openrouter": OR_MODEL}}
+            "models": {"zen": MODEL_ID, **BRAINS}}
 
 @app.post("/chat/stream")
 async def chat_stream(req: ChatRequest):
