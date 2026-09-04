@@ -59,6 +59,10 @@ class ChatRequest(BaseModel):
     banter: bool = False  # improv mode: msg is a stage direction, cast riffs
 
 TAG_RE = re.compile(r"\[([a-z_]+):([a-z0-9_=\.\-,]+(?::[a-z0-9_=\.\-,]+)*)\]")
+# dialogue-label guard: bubbles already stamp the speaker, so a "Name:" prefix is
+# always redundant. Self-labels are stripped here (history hygiene); cross-labels
+# pass through for the frontend to reassign to the named member's rig+voice.
+CAST_RE = re.compile(r"^(" + "|".join(re.escape(c) for c in CAST) + r")\s*:\s*")
 
 def split_chunk(buf: str):
     """Split complete tag/text events from buf. Returns (events, rest).
@@ -150,7 +154,12 @@ async def chat_stream(req: ChatRequest, request: Request):
                         continue
                     speaker = getattr(ev, "agent_name", "") or ""
                     if speaker in bufs:
-                        events, bufs[speaker] = split_chunk(bufs[speaker] + content)
+                        combined = bufs[speaker] + content
+                        if not bufs[speaker]:
+                            m = CAST_RE.match(combined)
+                            if m and m.group(1) == speaker:
+                                combined = combined[m.end():]  # strip redundant self-label
+                        events, bufs[speaker] = split_chunk(combined)
                         for typ, val in events:
                             if typ == "token":
                                 texts[speaker].append(val)

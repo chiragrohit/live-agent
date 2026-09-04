@@ -329,11 +329,16 @@ async function send(){
           if(!sentenceBuf) bufSpeaker=sp;
           sentenceBuf+=j.content;
           // extract complete sentences
+          // screenplay guard: a "Name:" prefix reassigns the line to that member's
+          // bubble/rig/voice (CAST_RE built from the roster). Self-prefixes just strip.
+          const CAST_NAMED = new RegExp("^\\s*(" + order.join("|") + ")\\s*:\\s*");
           let m;
           while((m=sentenceBuf.match(SENT_RE))){
-            const sentence=m[0];
+            let sentence=m[0];
+            const nm=sentence.match(CAST_NAMED);
+            if(nm){ sentence=sentence.slice(nm[0].length); if(nm[1]!==bufSpeaker) pendingSp=nm[1]; }
             enqueue(sentence);
-            sentenceBuf=sentenceBuf.slice(sentence.length);
+            sentenceBuf=sentenceBuf.slice(m[0].length);
           }
           // if buffer grows very long without punctuation (e.g., 180 chars), force chunk
           if(sentenceBuf.length>220){
