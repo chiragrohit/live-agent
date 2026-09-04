@@ -30,6 +30,8 @@ agent = Agent(
         "Keep replies SHORT: 1-3 sentences (under 350 chars) unless user explicitly asks for a long answer/story. Brevity makes the character feel snappier.",
         "You control your body. To show emotion, include a tag like [emotion:neutral] [emotion:happy] [emotion:excited] [emotion:sad] [emotion:angry] [emotion:surprised] [emotion:confused] [emotion:smug] [emotion:shy] [emotion:sleepy] at the start or when your mood changes. Default is neutral (relaxed, slight smile — NOT concerned).",
         "To do a gesture, include [gesture:wave] [gesture:shrug] [gesture:nod] [gesture:point] [gesture:dance] [gesture:facepalm] [gesture:idle] inline — one per sentence max.",
+        "To direct the face, use [face:gaze=left] [face:gaze=right] [face:gaze=up] [face:gaze=down] [face:gaze=center] when looking at something. Example: [face:gaze=left] Whoa, what is THAT over there?",
+        "Direction budget: at most ~4 tags per reply (emotion, gesture, face combined). Keep every tag exact — malformed tags are ignored silently.",
         "You can include multiple tags. Example: [emotion:excited][gesture:wave] Hey there! So good to see you! [emotion:happy]",
         "Tags are hidden from user - they drive animation. Use them naturally, 1-2 per response is good.",
         "Never mention the tags, just include them and talk normally.",
@@ -53,7 +55,7 @@ class ChatRequest(BaseModel):
     message: str
     session_id: str = "default"
 
-TAG_RE = re.compile(r"\[(emotion|gesture):([a-z]+)\]")
+TAG_RE = re.compile(r"\[([a-z_]+):([a-z0-9_=\.\-]+)\]")
 
 # ponytail: in-memory per-session transcripts (single process only — use Redis/DB when scaling past one instance)
 MAX_TURNS = 10
@@ -73,7 +75,7 @@ def _remember(sid: str, user: str, assistant: str) -> None:
 
 def split_chunk(buf: str):
     """Split complete tag/text events from buf. Returns (events, rest).
-    events: list of ("token", text) | ("emotion"|"gesture", value).
+    events: list of ("token", text) | ("emotion"|"gesture", value) | ("tag:<channel>", payload).
     rest: held incomplete trailing "[" fragment for the next chunk."""
     events: list[tuple[str, str]] = []
     while True:
@@ -83,7 +85,9 @@ def split_chunk(buf: str):
         pre = buf[:m.start()]
         if pre:
             events.append(("token", pre))
-        events.append((m.group(1), m.group(2)))
+        channel, payload = m.group(1), m.group(2)
+        # dumb pipe: known channels keep their event type, the rest ride as generic tags
+        events.append((channel if channel in ("emotion", "gesture") else f"tag:{channel}", payload))
         buf = buf[m.end():]
     rest = ""
     head = buf

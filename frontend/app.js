@@ -76,6 +76,22 @@ function doGesture(g){
   }
 }
 
+// -- tag handler registry: grammar v2 dispatch (emotion|gesture legacy + new channels) --
+function setGaze(dir){
+  const P={left:[-9,0],right:[9,0],up:[0,-5],down:[0,4],center:[0,0],camera:[0,0]};
+  const p=P[dir]||P.center;
+  gsap.to([pupilL,pupilR],{x:p[0],y:p[1],duration:.25,ease:"power2.out"});
+}
+const tagHandlers={
+  face:(payload)=>{ for(const part of String(payload).split(",")){ const kv=part.split("="); if(kv[0]==="gaze"&&kv[1]) setGaze(kv[1]); } },
+};
+function fireSlot(s){
+  if(!s||s.fired) return; s.fired=true;
+  if(s.type==="emotion") setEmotion(s.value);
+  else if(s.type==="gesture") setTimeout(()=>doGesture(s.value),120);
+  else if(s.type==="tag"){ const fn=tagHandlers[s.channel]; if(fn){ try{fn(s.value);}catch(e){console.warn('tag handler failed',s.channel,e);} } }
+}
+
 // -- lip sync (fake + audio-driven) --
 let audioEl=null, audioCtx=null, analyser=null, audioSrc=null, rafId=null;
 function flapTick(){
@@ -203,7 +219,7 @@ async function playElFlow(handle, item, ui){
       if(audioEl===audio) audioEl=null;
       if(rafId) cancelAnimationFrame(rafId);
       if(!ok){ reject(new Error('el playback failed')); return; }
-      for(const s of slots){ if(!s.fired){ s.fired=true; if(s.type==="emotion") setEmotion(s.value); else doGesture(s.value); } }
+      for(const s of slots){ if(!s.fired) fireSlot(s); }
       if(cur){ words.push(cur); cur=null; }
       ui.commitItem(item.text);
       if(talking) flapTick();
@@ -216,9 +232,7 @@ async function playElFlow(handle, item, ui){
         if(s.fired || !words.length) continue;
         const w = s.w===Infinity? words.length-1 : Math.min(s.w, words.length-1);
         if(w<0 || words[w].start===undefined || words[w].start>t) continue;
-        s.fired=true;
-        if(s.type==="emotion") setEmotion(s.value);
-        else setTimeout(()=>doGesture(s.value), 120);
+        fireSlot(s);
       }
     };
     const renderDue=(t)=>{
@@ -252,6 +266,7 @@ async function playElFlow(handle, item, ui){
             started=true;
             try{ await audio.play(); }
             catch(e){ finish(false); return; }
+            audio.muted = !(ttsToggle?.checked ?? true); // voice-off keeps clock, reveal, acting
             if(!talking) startTalking();
             statusEl.textContent='speaking...'; statusEl.classList.add('talking');
             startAudioLipSync(audio);
@@ -300,7 +315,8 @@ async function send(){
     const words=item.text.split(/\s+/).filter(Boolean);
     const fireTags=()=>{ if(item.emotion) setEmotion(item.emotion); if(item.gesture) setTimeout(()=>doGesture(item.gesture), 180); };
     const fakeSpeak=(totalMs)=>new Promise((res)=>{
-      fireTags(); if(!talking) startTalking();
+      fireTags(); for(const s of (item.tagSlots||[])) if(s.type==="tag") fireSlot({...s});
+      if(!talking) startTalking();
       let i=0; renderShown(words[0]||"");
       const step=()=>{ i++; if(i>=words.length){ clearReveal(); commitItem(item.text); res(); return; } renderShown(words.slice(0,i+1).join(" ")); revealTimer=setTimeout(step, totalMs/Math.max(1,words.length)); };
       revealTimer=setTimeout(step, totalMs/Math.max(1,words.length));
@@ -375,11 +391,15 @@ async function send(){
             const cut=sentenceBuf.lastIndexOf(' ');
             if(cut>80){ enqueue(sentenceBuf.slice(0,cut)); sentenceBuf=sentenceBuf.slice(cut); }
           }
-        } else if(j.type==="emotion" || j.type==="gesture"){
+        } else if(j.type==="emotion" || j.type==="gesture" || (j.type||"").startsWith("tag:")){
           // word index at arrival => exact firing position on the el timestamp clock
           const w=sentenceBuf.split(/\s+/).filter(Boolean).length;
-          pendingSlots.push({w, type:j.type, value:j.value});
-          if(j.type==="emotion") pendingEmotion=j.value; else pendingGesture=j.value;
+          if((j.type||"").startsWith("tag:")){
+            pendingSlots.push({w, type:"tag", channel:j.type.slice(4), value:j.value});
+          } else {
+            pendingSlots.push({w, type:j.type, value:j.value});
+            if(j.type==="emotion") pendingEmotion=j.value; else pendingGesture=j.value;
+          }
         }
         else if(j.type==="error"){ if(!started){ botBubble.textContent=""; started=true; } displayed+=(displayed?" ":"")+"[error: "+j.content+"]"; botBubble.textContent=displayed; }
       }
@@ -401,7 +421,7 @@ async function send(){
       else {
         if(pendingEmotion) setEmotion(pendingEmotion);
         if(pendingGesture){ const g=pendingGesture; setTimeout(()=>doGesture(g), 150); }
-        for(const s of pendingSlots){ if(s.type==="emotion") setEmotion(s.value); else setTimeout(()=>doGesture(s.value), 150); }
+        for(const s of pendingSlots) fireSlot({...s});
       }
       pendingEmotion=pendingGesture=null; pendingSlots=[];
     }
